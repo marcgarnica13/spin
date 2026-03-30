@@ -1,0 +1,16 @@
+# GSD planning artifacts
+.planning/
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
