@@ -260,13 +260,20 @@ spin_status_json() {
 
 spin_status() {
   local once=false
+  local json_output=false
 
   for arg in "$@"; do
     case "$arg" in
       --once) once=true ;;
+      --json) json_output=true ;;
       *) spin_die "unknown option: $arg" ;;
     esac
   done
+
+  if $json_output; then
+    spin_status_json
+    return
+  fi
 
   if $once; then
     spin_status_once
