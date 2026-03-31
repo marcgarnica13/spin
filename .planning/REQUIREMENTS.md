@@ -15,11 +15,11 @@ Requirements for GNOME System Tray Indicator. Each maps to roadmap phases.
 ### Tray Icon
 
 - [x] **TRAY-01**: GNOME Shell extension displays icon in top bar when spin sessions exist
-- [ ] **TRAY-02**: Icon is hidden when no spin sessions are running
-- [ ] **TRAY-03**: Icon shows green when all sessions are working
-- [ ] **TRAY-04**: Icon shows yellow when any session needs user input
-- [ ] **TRAY-05**: Icon shows red when any session needs permission approval
-- [ ] **TRAY-06**: Icon color priority: red > yellow > green (worst state wins)
+- [x] **TRAY-02**: Icon is hidden when no spin sessions are running
+- [x] **TRAY-03**: Icon shows green when all sessions are working
+- [x] **TRAY-04**: Icon shows yellow when any session needs user input
+- [x] **TRAY-05**: Icon shows red when any session needs permission approval
+- [x] **TRAY-06**: Icon color priority: red > yellow > green (worst state wins)
 
 ### Dropdown Menu
 
@@ -68,11 +68,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | CLI-01 | Phase 4 | Complete |
 | CLI-02 | Phase 4 | Complete |
 | TRAY-01 | Phase 5 | Complete |
-| TRAY-02 | Phase 5 | Pending |
-| TRAY-03 | Phase 5 | Pending |
-| TRAY-04 | Phase 5 | Pending |
-| TRAY-05 | Phase 5 | Pending |
-| TRAY-06 | Phase 5 | Pending |
+| TRAY-02 | Phase 5 | Complete |
+| TRAY-03 | Phase 5 | Complete |
+| TRAY-04 | Phase 5 | Complete |
+| TRAY-05 | Phase 5 | Complete |
+| TRAY-06 | Phase 5 | Complete |
 | DROP-01 | Phase 6 | Pending |
 | DROP-02 | Phase 6 | Pending |
 | DROP-03 | Phase 6 | Pending |

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: GNOME System Tray Indicator
-status: executing
-stopped_at: Completed 05-gnome-extension-core-01-PLAN.md
-last_updated: "2026-03-31T15:58:23.339Z"
+status: verifying
+stopped_at: Completed 05-gnome-extension-core-02-PLAN.md
+last_updated: "2026-03-31T16:03:33.621Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -23,7 +23,7 @@ progress:
 
 Phase: 05 (gnome-extension-core) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-03-31
 
 Progress: [░░░░░░░░░░] 0% (v1.1 not started)
@@ -53,6 +53,8 @@ Recent decisions affecting current work:
 - [Phase 04-json-status-output]: idle_duration emits raw poll count (1 poll ≈ 20s), not seconds — Phase 5 must account for this
 - [Phase 04-json-status-output]: window field added to JSON schema to allow callers to address individual windows within a session
 - [Phase 05-gnome-extension-core]: accessible_name used for tooltip in SpinIndicator (ClutterActor API) — plan specified non-existent set_child_actor_label
+- [Phase 05-gnome-extension-core]: Use Gio.Subprocess.new async (not sync spawn) to keep GNOME Shell main thread unblocked during spin status polling
+- [Phase 05-gnome-extension-core]: GLib.find_program_in_path('spin') at constructor time with 'spin' fallback for portable CLI resolution
 
 ### Pending Todos
 
@@ -65,8 +67,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T15:58:23.327Z
-Stopped at: Completed 05-gnome-extension-core-01-PLAN.md
+Last session: 2026-03-31T16:03:33.608Z
+Stopped at: Completed 05-gnome-extension-core-02-PLAN.md
 Resume file: None
 
 ---
