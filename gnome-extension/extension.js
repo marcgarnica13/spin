@@ -92,7 +92,12 @@ class SpinIndicator extends PanelMenu.Button {
     const aggregateState = this._aggregateState(sessions);
     const iconName = this._stateToIconName(aggregateState);
     this._icon.icon_name = iconName;
-    this._buildMenu(sessions);
+
+    // Skip menu rebuild if menu is currently open — prevents visible flicker/collapse
+    // while the user is interacting with the dropdown (20s polling fires in background)
+    if (!this.menu.isOpen) {
+      this._buildMenu(sessions);
+    }
   }
 
   _aggregateState(sessions) {
@@ -228,6 +233,7 @@ function disable() {
   log('[spin-indicator] disable()');
   if (_indicator !== null) {
     _indicator._stopPolling();
+    _indicator.menu.removeAll(); // Clean up menu items before destroy to prevent memory leaks
     _indicator.destroy();
     _indicator = null;
   }
