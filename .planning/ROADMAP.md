@@ -80,7 +80,9 @@ Plans:
   1. Running `make install` deploys the extension files to the correct GNOME extension directory
   2. Running `make uninstall` removes all extension files cleanly, leaving no orphaned files
   3. README contains step-by-step instructions for enabling the extension after installation
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 07-01-PLAN.md — Extend Makefile with extension install/uninstall targets and update README with GNOME setup instructions
 
 ## Progress
 
@@ -92,7 +94,7 @@ Plans:
 | 4. JSON Status Output | v1.1 | 1/1 | Complete   | 2026-03-31 |
 | 5. GNOME Extension Core | v1.1 | 0/? | Not started | - |
 | 6. Session Dropdown | v1.1 | 1/2 | In Progress|  |
-| 7. Installation | v1.1 | 0/? | Not started | - |
+| 7. Installation | v1.1 | 0/1 | Not started | - |
 
 ---
 
@@ -100,3 +102,4 @@ Plans:
 *Last updated: 2026-03-31 (v1.1 milestone planned)*
 *Updated: 2026-03-31 — Phase 4 planned (1 plan)*
 *Updated: 2026-03-31 — Phase 6 planned (2 plans)*
+*Updated: 2026-03-31 — Phase 7 planned (1 plan)*
