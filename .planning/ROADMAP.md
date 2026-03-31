@@ -25,7 +25,7 @@
 - [x] **Phase 4: JSON Status Output** — Add `--json` flag to `spin status` as the data bridge for the extension (completed 2026-03-31)
 - [ ] **Phase 5: GNOME Extension Core** — Scaffold GNOME Shell extension with live color-coded tray icon
 - [ ] **Phase 6: Session Dropdown** — Build interactive dropdown listing sessions with click-to-reconnect
-- [ ] **Phase 7: Installation** — Integrate extension into `make install`/`make uninstall` and document setup
+- [x] **Phase 7: Installation** — Integrate extension into `make install`/`make uninstall` and document setup (completed 2026-03-31)
 
 ## Phase Details
 
@@ -82,7 +82,7 @@ Plans:
   3. README contains step-by-step instructions for enabling the extension after installation
 **Plans**: 1 plan
 Plans:
-- [ ] 07-01-PLAN.md — Extend Makefile with extension install/uninstall targets and update README with GNOME setup instructions
+- [x] 07-01-PLAN.md — Extend Makefile with extension install/uninstall targets and update README with GNOME setup instructions
 
 ## Progress
 
@@ -94,7 +94,7 @@ Plans:
 | 4. JSON Status Output | v1.1 | 1/1 | Complete   | 2026-03-31 |
 | 5. GNOME Extension Core | v1.1 | 0/? | Not started | - |
 | 6. Session Dropdown | v1.1 | 1/2 | In Progress|  |
-| 7. Installation | v1.1 | 0/1 | Not started | - |
+| 7. Installation | v1.1 | 1/1 | Complete   | 2026-03-31 |
 
 ---
 

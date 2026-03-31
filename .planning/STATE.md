@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: GNOME System Tray Indicator
 status: verifying
-stopped_at: Completed 06-session-dropdown-02-PLAN.md
-last_updated: "2026-03-31T16:36:46.433Z"
+stopped_at: Completed 07-installation-01-PLAN.md
+last_updated: "2026-03-31T16:54:28.096Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  completed_phases: 4
+  total_plans: 6
+  completed_plans: 6
   percent: 0
 ---
 
@@ -21,8 +21,8 @@ progress:
 
 ## Current Position
 
-Phase: 06 (session-dropdown) — EXECUTING
-Plan: 2 of 2
+Phase: 07 (installation) — EXECUTING
+Plan: 1 of 1
 Status: Phase complete — ready for verification
 Last activity: 2026-03-31
 
@@ -33,7 +33,7 @@ Progress: [░░░░░░░░░░] 0% (v1.1 not started)
 See: .planning/PROJECT.md (updated 2026-03-31)
 
 **Core value:** Effortless management of parallel Claude Code sessions — launch, monitor, and reconnect without manual tmux juggling.
-**Current focus:** Phase 06 — session-dropdown
+**Current focus:** Phase 07 — installation
 
 ## Quick Tasks Completed
 
@@ -59,6 +59,7 @@ Recent decisions affecting current work:
 - [Phase 06-session-dropdown]: Arrow functions in loop callbacks prevent closure capture bug — sessionName captured by value per iteration
 - [Phase 06-session-dropdown]: Icon color updates even when menu is open; only structural _buildMenu() guarded — keeps tray icon live without disrupting dropdown
 - [Phase 06-session-dropdown]: Cleanup ordering in disable(): stopPolling → menu.removeAll() → destroy() → null — deterministic resource release
+- [Phase 07-installation]: Extension installs to ~/.local (no sudo) while CLI installs to /usr/local — different privilege levels handled by separate sub-targets
 
 ### Pending Todos
 
@@ -71,8 +72,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-31T16:36:46.427Z
-Stopped at: Completed 06-session-dropdown-02-PLAN.md
+Last session: 2026-03-31T16:54:28.090Z
+Stopped at: Completed 07-installation-01-PLAN.md
 Resume file: None
 
 ---

@@ -31,9 +31,9 @@ Requirements for GNOME System Tray Indicator. Each maps to roadmap phases.
 
 ### Installation
 
-- [ ] **INST-01**: make install deploys GNOME extension alongside CLI tools
-- [ ] **INST-02**: make uninstall removes GNOME extension cleanly
-- [ ] **INST-03**: README documents manual extension installation and enabling
+- [x] **INST-01**: make install deploys GNOME extension alongside CLI tools
+- [x] **INST-02**: make uninstall removes GNOME extension cleanly
+- [x] **INST-03**: README documents manual extension installation and enabling
 
 ## v1.2 Requirements
 
@@ -78,9 +78,9 @@ Deferred to future release. Tracked but not in current roadmap.
 | DROP-03 | Phase 6 | Complete |
 | DROP-04 | Phase 6 | Complete |
 | DROP-05 | Phase 6 | Complete |
-| INST-01 | Phase 7 | Pending |
-| INST-02 | Phase 7 | Pending |
-| INST-03 | Phase 7 | Pending |
+| INST-01 | Phase 7 | Complete |
+| INST-02 | Phase 7 | Complete |
+| INST-03 | Phase 7 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 16 total
