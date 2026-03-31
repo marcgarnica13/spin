@@ -67,8 +67,10 @@ Plans:
   3. Clicking a session row opens a new Ghostty window connected to that session (equivalent to `spin connect <session>`)
   4. Session list refreshes automatically every 20 seconds without requiring user interaction
   5. Sessions are displayed in a tree-like structure consistent with `spin status` terminal output
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 2 plans
+Plans:
+- [ ] 06-01-PLAN.md — Add _buildMenu(), _groupSessionsByName(), _stateToIconSymbol(), _connectToSession() to extension.js
+- [ ] 06-02-PLAN.md — Add open-menu guard, disable() cleanup, and human verify checkpoint
 
 ### Phase 7: Installation
 **Goal**: The GNOME extension is deployed alongside the CLI tools via the standard `make install` workflow and users can find setup instructions in the README
@@ -89,7 +91,7 @@ Plans:
 | 3. Session Reconnection | v1.0 | 1/1 | Complete | 2026-03-31 |
 | 4. JSON Status Output | v1.1 | 1/1 | Complete   | 2026-03-31 |
 | 5. GNOME Extension Core | v1.1 | 0/? | Not started | - |
-| 6. Session Dropdown | v1.1 | 0/? | Not started | - |
+| 6. Session Dropdown | v1.1 | 0/2 | Not started | - |
 | 7. Installation | v1.1 | 0/? | Not started | - |
 
 ---
@@ -97,3 +99,4 @@ Plans:
 *Roadmap created: 2026-03-31*
 *Last updated: 2026-03-31 (v1.1 milestone planned)*
 *Updated: 2026-03-31 — Phase 4 planned (1 plan)*
+*Updated: 2026-03-31 — Phase 6 planned (2 plans)*

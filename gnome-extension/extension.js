@@ -3,6 +3,7 @@
 const { Gio, GLib, St } = imports.gi;
 const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
+const PopupMenu = imports.ui.popupMenu;
 
 // ── SpinIndicator ──────────────────────────────────────────────────────────────
 // PanelMenu.Button subclass that owns the tray icon lifecycle.
@@ -121,6 +122,35 @@ class SpinIndicator extends PanelMenu.Button {
       'idle':    'dialog-information-symbolic', // grey — no activity
     };
     return iconMap[aggregateState] || 'dialog-information-symbolic';
+  }
+
+  _groupSessionsByName(sessions) {
+    // sessions is a flat array: [{name, window, state, pid, idle_duration}, ...]
+    // Returns a Map<string, Array<{window, state}>>
+    const grouped = new Map();
+    for (const entry of sessions) {
+      const sessionName = String(entry.name || '');
+      if (!sessionName) continue;
+      if (!grouped.has(sessionName)) {
+        grouped.set(sessionName, []);
+      }
+      grouped.get(sessionName).push({
+        window: String(entry.window || ''),
+        state: String(entry.state || 'idle'),
+      });
+    }
+    return grouped;
+  }
+
+  _stateToIconSymbol(state) {
+    const symbolMap = {
+      'working':    '\u25CF', // ● filled circle (active)
+      'waiting':    '\u25C9', // ◉ fisheye (awaiting input)
+      'idle':       '\u25CC', // ◌ dotted circle (no activity)
+      'exited':     '\u25CB', // ○ open circle (exited)
+      'permission': '\u25CB', // ○ open circle (needs permission)
+    };
+    return symbolMap[state] || '\u25CB';
   }
 
   // ── Visibility ─────────────────────────────────────────────────────────────
