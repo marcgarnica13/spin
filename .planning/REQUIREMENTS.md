@@ -23,10 +23,10 @@ Requirements for GNOME System Tray Indicator. Each maps to roadmap phases.
 
 ### Dropdown Menu
 
-- [ ] **DROP-01**: Clicking the icon opens a dropdown menu listing all active sessions
-- [ ] **DROP-02**: Each session shows name and current state with matching status icon
-- [ ] **DROP-03**: Dropdown uses tree-like visual structure matching spin status terminal output
-- [ ] **DROP-04**: Clicking a session spawns spin connect to open Ghostty window
+- [x] **DROP-01**: Clicking the icon opens a dropdown menu listing all active sessions
+- [x] **DROP-02**: Each session shows name and current state with matching status icon
+- [x] **DROP-03**: Dropdown uses tree-like visual structure matching spin status terminal output
+- [x] **DROP-04**: Clicking a session spawns spin connect to open Ghostty window
 - [ ] **DROP-05**: Session list auto-refreshes every 20 seconds via polling
 
 ### Installation
@@ -73,10 +73,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | TRAY-04 | Phase 5 | Complete |
 | TRAY-05 | Phase 5 | Complete |
 | TRAY-06 | Phase 5 | Complete |
-| DROP-01 | Phase 6 | Pending |
-| DROP-02 | Phase 6 | Pending |
-| DROP-03 | Phase 6 | Pending |
-| DROP-04 | Phase 6 | Pending |
+| DROP-01 | Phase 6 | Complete |
+| DROP-02 | Phase 6 | Complete |
+| DROP-03 | Phase 6 | Complete |
+| DROP-04 | Phase 6 | Complete |
 | DROP-05 | Phase 6 | Pending |
 | INST-01 | Phase 7 | Pending |
 | INST-02 | Phase 7 | Pending |
