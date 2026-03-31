@@ -13,6 +13,7 @@ class SpinIndicator extends PanelMenu.Button {
     super(0.0, 'Spin Indicator');
     this._icon = null;
     this._timeoutId = null;
+    this._spinPath = GLib.find_program_in_path('spin') || 'spin';
   }
 
   _createUI() {
@@ -29,7 +30,7 @@ class SpinIndicator extends PanelMenu.Button {
     this.accessible_name = text;
   }
 
-  // ── Polling (stubbed; Plan 02 implements) ──────────────────────────────────
+  // ── Polling ────────────────────────────────────────────────────────────────
   _startPolling() {
     this._refreshState();
     this._timeoutId = GLib.timeout_add_seconds(
@@ -50,8 +51,76 @@ class SpinIndicator extends PanelMenu.Button {
   }
 
   _refreshState() {
-    // Stub — Plan 02 replaces this with spin status --json subprocess call
-    log('[spin-indicator] _refreshState() stub called');
+    let proc;
+    try {
+      proc = Gio.Subprocess.new(
+        [this._spinPath, 'status', '--json'],
+        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE
+      );
+    } catch (e) {
+      logError(e, '[spin-indicator] Failed to spawn spin status --json');
+      this._hideIndicator();
+      return;
+    }
+
+    proc.communicate_utf8_async(null, null, (proc, res) => {
+      try {
+        const [, stdout] = proc.communicate_utf8_finish(res);
+        const sessions = JSON.parse(stdout.trim());
+
+        if (!Array.isArray(sessions)) {
+          throw new Error('Expected JSON array, got: ' + typeof sessions);
+        }
+
+        this._updateUI(sessions);
+      } catch (e) {
+        logError(e, '[spin-indicator] Failed to parse spin status output');
+        this._hideIndicator();
+      }
+    });
+  }
+
+  _updateUI(sessions) {
+    if (sessions.length === 0) {
+      this._hideIndicator();
+      return;
+    }
+
+    this._showIndicator();
+    const aggregateState = this._aggregateState(sessions);
+    const iconName = this._stateToIconName(aggregateState);
+    this._icon.icon_name = iconName;
+  }
+
+  _aggregateState(sessions) {
+    // Priority: error (red) > waiting (yellow) > working > idle
+    let result = 'idle';
+
+    for (const session of sessions) {
+      const state = session.state;
+
+      if (state === 'permission' || state === 'exited') {
+        return 'error'; // Highest priority — stop checking immediately
+      }
+
+      if (state === 'waiting') {
+        result = 'waiting';
+      } else if (state === 'working' && result === 'idle') {
+        result = 'working';
+      }
+    }
+
+    return result;
+  }
+
+  _stateToIconName(aggregateState) {
+    const iconMap = {
+      'error':   'dialog-error-symbolic',    // red   — permission or exited
+      'waiting': 'dialog-warning-symbolic',  // amber — awaiting user input
+      'working': 'spinner',                  // active — Claude running
+      'idle':    'dialog-information-symbolic', // grey — no activity
+    };
+    return iconMap[aggregateState] || 'dialog-information-symbolic';
   }
 
   // ── Visibility ─────────────────────────────────────────────────────────────

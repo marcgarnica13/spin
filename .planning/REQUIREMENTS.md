@@ -14,7 +14,7 @@ Requirements for GNOME System Tray Indicator. Each maps to roadmap phases.
 
 ### Tray Icon
 
-- [ ] **TRAY-01**: GNOME Shell extension displays icon in top bar when spin sessions exist
+- [x] **TRAY-01**: GNOME Shell extension displays icon in top bar when spin sessions exist
 - [ ] **TRAY-02**: Icon is hidden when no spin sessions are running
 - [ ] **TRAY-03**: Icon shows green when all sessions are working
 - [ ] **TRAY-04**: Icon shows yellow when any session needs user input
@@ -67,7 +67,7 @@ Deferred to future release. Tracked but not in current roadmap.
 |-------------|-------|--------|
 | CLI-01 | Phase 4 | Complete |
 | CLI-02 | Phase 4 | Complete |
-| TRAY-01 | Phase 5 | Pending |
+| TRAY-01 | Phase 5 | Complete |
 | TRAY-02 | Phase 5 | Pending |
 | TRAY-03 | Phase 5 | Pending |
 | TRAY-04 | Phase 5 | Pending |
