@@ -51,6 +51,10 @@ spin_status_once() {
           icon="$ICON_PERMISSION"
           label="${RED}${BOLD}needs permission${RESET}"
           ;;
+        idle)
+          icon="$ICON_IDLE"
+          label="${CYAN}${DIM}idle${RESET}"
+          ;;
         exited)
           icon="$ICON_EXITED"
           label="${DIM}exited${RESET}"
@@ -68,7 +72,7 @@ spin_status_once() {
   done <<< "$sessions"
 
   # Legend
-  echo " ${ICON_WORKING} working  ${ICON_WAITING} needs input  ${ICON_PERMISSION} needs permission  ${ICON_EXITED} exited"
+  echo " ${ICON_WORKING} working  ${ICON_WAITING} needs input  ${ICON_PERMISSION} needs permission  ${ICON_IDLE} idle  ${ICON_EXITED} exited"
 }
 
 detect_claude_state() {
@@ -137,6 +141,32 @@ detect_claude_state() {
   # Be specific to avoid matching tool output that mentions these words in normal text
   if echo "$last_lines" | grep -qE '(Allow once|Allow always|Deny|Yes.*No.*\?)'; then
     echo "permission"
+    return
+  fi
+
+  # Idle detection: compare pane content hash across polls (D-01, D-02, D-03)
+  # State is persisted in tmux environment per session:window to survive across CLI invocations
+  local content_hash
+  content_hash=$(echo "$pane_content" | md5sum | cut -d' ' -f1)
+
+  local last_hash
+  last_hash=$(tmux show-environment -t "$session" "SPIN_LAST_CONTENT_${session}_${widx}" 2>/dev/null | cut -d= -f2- || true)
+
+  local unchanged_polls
+  unchanged_polls=$(tmux show-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" 2>/dev/null | cut -d= -f2- || echo 0)
+
+  if [[ "$content_hash" != "$last_hash" ]]; then
+    unchanged_polls=0
+  else
+    unchanged_polls=$((unchanged_polls + 1))
+  fi
+
+  tmux set-environment -t "$session" "SPIN_LAST_CONTENT_${session}_${widx}" "$content_hash"
+  tmux set-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" "$unchanged_polls"
+
+  # Threshold: 3 consecutive polls with unchanged content = ~60s at 20s interval (D-04, D-05)
+  if [[ $unchanged_polls -ge 3 ]]; then
+    echo "idle"
     return
   fi
 

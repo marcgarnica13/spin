@@ -28,6 +28,6 @@ spin_claude() {
   # Store the project directory for spin status
   tmux set-environment -t "$session" SPIN_CWD "$PWD"
 
-  ghostty -e tmux attach -t "$session" &
+  ghostty -e tmux attach -t "$session" 2>/dev/null &
   disown
 }

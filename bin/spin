@@ -24,6 +24,7 @@ ${BOLD}spin${RESET} v${SPIN_VERSION} — parallel Claude Code session manager
 ${BOLD}USAGE${RESET}
   spin claude <name1> [name2] ...    Launch Claude sessions in tmux worktrees
   spin status [--once]               Monitor active spin sessions
+  spin connect [session]             Reconnect to an existing session
 
 ${BOLD}OPTIONS${RESET}
   -v, --version    Show version
@@ -44,6 +45,12 @@ case "${1:-}" in
     # shellcheck source=../lib/spin-status.sh
     source "$SPIN_LIB/spin-status.sh"
     spin_status "$@"
+    ;;
+  connect)
+    shift
+    # shellcheck source=../lib/spin-connect.sh
+    source "$SPIN_LIB/spin-connect.sh"
+    spin_connect "$@"
     ;;
   -v|--version)
     echo "spin $SPIN_VERSION"

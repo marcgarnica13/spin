@@ -5,7 +5,8 @@ Parallel [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session m
 ## Features
 
 - **`spin claude`** -- Spin up parallel Claude Code sessions, each in its own git worktree and tmux window
-- **`spin status`** -- Live dashboard showing all sessions, worktrees, and whether Claude is waiting for input
+- **`spin status`** -- Live dashboard showing all sessions, worktrees, and whether Claude is working, waiting, idle, or exited (refreshes every 20s)
+- **`spin connect`** -- Reconnect to existing sessions in a new Ghostty window (auto-attaches when one session exists, lists available sessions when multiple)
 
 ## Requirements
 
@@ -58,24 +59,31 @@ spin status
 Live-updating tree view of all active spin sessions:
 
 ```
-spin status (refreshing every 2s -- press Ctrl-C to exit)
+spin status (refreshing every 20s -- press Ctrl-C to exit)
 
  spin-assistant  ~/Development/assistant
  ├─ planner    ● working
  ├─ reviewer   ◉ waiting for input
- └─ coder      ○ exited
+ └─ coder      ◌ idle
 
  spin-myproject  ~/Development/myproject
  ├─ api        ● working
- └─ tests      ◉ waiting for input
+ └─ tests      ○ exited
 
- ● working  ◉ needs input  ◉ needs permission  ○ exited
+ ● working  ◉ needs input  ◉ needs permission  ◌ idle  ○ exited
 ```
 
 Use `--once` for a single snapshot:
 
 ```bash
 spin status --once
+```
+
+### Reconnect to sessions
+
+```bash
+spin connect           # auto-attaches if one session, lists if multiple
+spin connect myproject # attach to spin-myproject in a new Ghostty window
 ```
 
 ## How it works
