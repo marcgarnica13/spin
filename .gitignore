@@ -1,5 +1,6 @@
-# GSD planning artifacts
+# GSD planning artifacts — but commit research directory
 .planning/
+!.planning/research/
 
 # Claude Code local settings
 .claude/settings.local.json
