@@ -3,7 +3,16 @@ set -euo pipefail
 
 # Resolve the real path of this script (works through symlinks)
 SPIN_ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-SPIN_LIB="$SPIN_ROOT/lib"
+
+# Support both dev layout (lib/spin-common.sh) and installed layout (lib/spin/spin-common.sh)
+if [[ -f "$SPIN_ROOT/lib/spin-common.sh" ]]; then
+  SPIN_LIB="$SPIN_ROOT/lib"
+elif [[ -f "$SPIN_ROOT/lib/spin/spin-common.sh" ]]; then
+  SPIN_LIB="$SPIN_ROOT/lib/spin"
+else
+  echo "Error: Cannot find spin-common.sh (looked in $SPIN_ROOT/lib/ and $SPIN_ROOT/lib/spin/)" >&2
+  exit 1
+fi
 
 # shellcheck source=../lib/spin-common.sh
 source "$SPIN_LIB/spin-common.sh"

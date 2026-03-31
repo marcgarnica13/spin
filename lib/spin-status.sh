@@ -16,10 +16,10 @@ spin_status_once() {
 
     # Get project directory
     local project_dir
-    project_dir=$(tmux show-environment -t "$session" SPIN_CWD 2>/dev/null | cut -d= -f2-)
+    project_dir=$(tmux show-environment -t "$session" SPIN_CWD 2>/dev/null | cut -d= -f2- || true)
     if [[ -z "$project_dir" || "$project_dir" == "-SPIN_CWD" ]]; then
-      # Fallback: get cwd from pane 1 (the shell pane)
-      project_dir=$(tmux display-message -t "$session:0.1" -p '#{pane_current_path}' 2>/dev/null || echo "unknown")
+      # Fallback: get cwd from pane 0
+      project_dir=$(tmux display-message -t "$session:0.0" -p '#{pane_current_path}' 2>/dev/null || echo "unknown")
     fi
     # Shorten home prefix
     project_dir="${project_dir/#$HOME/~}"
@@ -81,26 +81,26 @@ detect_claude_state() {
 
   if [[ -n "$pane_pid" ]]; then
     local has_claude=false
-    # Check the pane's foreground process and its children
+    # Walk the process tree: shell -> claude -> node
+    local all_pids="$pane_pid"
     local children
     children=$(pgrep -P "$pane_pid" 2>/dev/null || true)
-    for pid in $pane_pid $children; do
-      local cmdline
-      cmdline=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
-      if [[ "$cmdline" == *claude* || "$cmdline" == *node* ]]; then
-        has_claude=true
-        break
-      fi
-      # Also check grandchildren (claude spawns node)
+    for pid in $children; do
+      all_pids="$all_pids $pid"
       local grandchildren
       grandchildren=$(pgrep -P "$pid" 2>/dev/null || true)
       for gpid in $grandchildren; do
-        cmdline=$(cat "/proc/$gpid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
-        if [[ "$cmdline" == *claude* || "$cmdline" == *node* ]]; then
-          has_claude=true
-          break 2
-        fi
+        all_pids="$all_pids $gpid"
       done
+    done
+
+    for pid in $all_pids; do
+      local cmdline
+      cmdline=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
+      if [[ "$cmdline" == *claude* ]]; then
+        has_claude=true
+        break
+      fi
     done
 
     if ! $has_claude; then
@@ -109,7 +109,7 @@ detect_claude_state() {
     fi
   fi
 
-  # Step 2: Capture pane content and analyze
+  # Step 2: Capture pane content and analyze last visible lines
   local pane_content
   pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -10 2>/dev/null || true)
 
@@ -118,18 +118,24 @@ detect_claude_state() {
     return
   fi
 
-  # Check for Claude's input prompt — the last non-empty line contains just ">"
+  # Get last non-empty lines (guard against grep returning 1 on no match)
   local last_lines
-  last_lines=$(echo "$pane_content" | grep -v '^$' | tail -3)
+  last_lines=$(echo "$pane_content" | grep -v '^$' | tail -3 || true)
 
-  # Claude's prompt is a ">" character (possibly with ANSI codes stripped by capture-pane)
+  if [[ -z "$last_lines" ]]; then
+    echo "working"
+    return
+  fi
+
+  # Claude Code's input prompt: a line that is just ">" (possibly with ANSI escapes stripped)
   if echo "$last_lines" | grep -qE '^\s*>\s*$'; then
     echo "waiting"
     return
   fi
 
-  # Check for permission prompt patterns
-  if echo "$last_lines" | grep -qiE '(Allow|Deny|yes.*no|approve|permission|Do you want)'; then
+  # Permission prompt: Claude shows "Allow" / "Deny" choices or "Yes" / "No" on the same line
+  # Be specific to avoid matching tool output that mentions these words in normal text
+  if echo "$last_lines" | grep -qE '(Allow once|Allow always|Deny|Yes.*No.*\?)'; then
     echo "permission"
     return
   fi
@@ -153,8 +159,8 @@ spin_status() {
   fi
 
   # Auto-refresh mode
-  trap 'tput cnorm 2>/dev/null; exit 0' INT TERM
-  tput civis 2>/dev/null  # hide cursor
+  trap 'tput cnorm 2>/dev/null || true; exit 0' INT TERM
+  tput civis 2>/dev/null || true  # hide cursor
 
   while true; do
     clear

@@ -22,8 +22,6 @@ spin_claude() {
       tmux new-window -t "$session" -n "$name"
     fi
     tmux send-keys -t "$session:$name" "claude --dangerously-skip-permissions --worktree $name" Enter
-    tmux split-window -h -t "$session:$name"
-    tmux select-pane -t "$session:$name.0"
     echo "Started window '$name'"
   done
 
