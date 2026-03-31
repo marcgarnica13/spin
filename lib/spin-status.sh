@@ -164,9 +164,9 @@ spin_status() {
 
   while true; do
     clear
-    echo "${BOLD}spin status${RESET} ${DIM}(refreshing every 2s — press Ctrl-C to exit)${RESET}"
+    echo "${BOLD}spin status${RESET} ${DIM}(refreshing every 20s — press Ctrl-C to exit)${RESET}"
     echo ""
     spin_status_once
-    sleep 2
+    sleep 20
   done
 }
