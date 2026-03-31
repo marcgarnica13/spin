@@ -52,8 +52,10 @@ Plans:
   3. When no spin sessions exist, the icon is absent from the top bar
   4. Icon is green when all sessions are in working/idle state, yellow when any session awaits input, red when any session needs permission approval
   5. Icon color follows red > yellow > green priority (worst session state determines icon color)
-**Plans**: TBD
-**UI hint**: yes
+**Plans**: 2 plans
+Plans:
+- [ ] 05-01-PLAN.md — Scaffold extension metadata.json and extension.js with enable/disable lifecycle
+- [ ] 05-02-PLAN.md — Implement async spin polling, state aggregation, and color-coded icon
 
 ### Phase 6: Session Dropdown
 **Goal**: Clicking the tray icon opens a dropdown that lists all sessions with their states and lets the user open any session in Ghostty with one click
