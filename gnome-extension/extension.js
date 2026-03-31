@@ -84,6 +84,7 @@ class SpinIndicator extends PanelMenu.Button {
   _updateUI(sessions) {
     if (sessions.length === 0) {
       this._hideIndicator();
+      this.menu.removeAll();
       return;
     }
 
@@ -91,6 +92,7 @@ class SpinIndicator extends PanelMenu.Button {
     const aggregateState = this._aggregateState(sessions);
     const iconName = this._stateToIconName(aggregateState);
     this._icon.icon_name = iconName;
+    this._buildMenu(sessions);
   }
 
   _aggregateState(sessions) {
@@ -151,6 +153,50 @@ class SpinIndicator extends PanelMenu.Button {
       'permission': '\u25CB', // ○ open circle (needs permission)
     };
     return symbolMap[state] || '\u25CB';
+  }
+
+  _buildMenu(sessions) {
+    this.menu.removeAll();
+
+    const grouped = this._groupSessionsByName(sessions);
+
+    for (const [sessionName, windows] of grouped) {
+      // Session row: expandable submenu node
+      const sessionItem = new PopupMenu.PopupSubMenuMenuItem(sessionName, false);
+
+      for (const win of windows) {
+        const symbol = this._stateToIconSymbol(win.state);
+        const label = `${win.window}  ${symbol}`;
+        const windowItem = new PopupMenu.PopupMenuItem(label);
+
+        // Capture sessionName by value via arrow function (avoids loop-closure bug)
+        windowItem.connect('activate', () => {
+          this._connectToSession(sessionName);
+        });
+
+        sessionItem.menu.addMenuItem(windowItem);
+      }
+
+      this.menu.addMenuItem(sessionItem);
+    }
+  }
+
+  _connectToSession(sessionName) {
+    const launcher = new Gio.SubprocessLauncher({
+      flags: Gio.SubprocessFlags.NONE,
+    });
+
+    const display = GLib.getenv('DISPLAY') || ':0';
+    launcher.setenv('DISPLAY', display, true);
+
+    try {
+      launcher.spawnv([this._spinPath, 'connect', sessionName]);
+      log(`[spin-indicator] Connected to session: ${sessionName}`);
+    } catch (e) {
+      logError(e, `[spin-indicator] Failed to connect to session: ${sessionName}`);
+    }
+
+    this.menu.close(PopupMenu.BoxPointer.PopupAnimation.FULL);
   }
 
   // ── Visibility ─────────────────────────────────────────────────────────────
