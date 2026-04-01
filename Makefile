@@ -29,5 +29,10 @@ uninstall-cli:
 	@echo "spin CLI uninstalled"
 
 uninstall-extension:
-	@rm -rf $(EXTENSION_DEST)
-	@echo "Spin extension uninstalled"
+	@if [ -d "$(EXTENSION_DEST)" ]; then \
+		rm -rf "$(EXTENSION_DEST)"; \
+		echo "Spin extension uninstalled from $(EXTENSION_DEST)"; \
+	else \
+		echo "warning: extension directory not found at $(EXTENSION_DEST) — nothing removed"; \
+		echo "  If you installed as root, try: sudo rm -rf $(EXTENSION_DEST)"; \
+	fi

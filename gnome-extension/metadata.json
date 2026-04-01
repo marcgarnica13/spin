@@ -3,6 +3,6 @@
   "description": "Shows color-coded spin session status in the GNOME top bar",
   "uuid": "spin@gsd.local",
   "version": 1,
-  "shell-version": ["42", "43", "44", "45", "46"],
+  "shell-version": ["45", "46", "47", "48"],
   "url": "https://github.com/marcgarnica/spin"
 }
