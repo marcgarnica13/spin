@@ -94,7 +94,7 @@ Plans:
 | 4. JSON Status Output | v1.1 | 1/1 | Complete   | 2026-03-31 |
 | 5. GNOME Extension Core | v1.1 | 0/? | Not started | - |
 | 6. Session Dropdown | v1.1 | 1/2 | In Progress|  |
-| 7. Installation | v1.1 | 1/1 | Complete   | 2026-03-31 |
+| 7. Installation | v1.1 | 2/2 | Complete   | 2026-04-01 |
 
 ---
 
