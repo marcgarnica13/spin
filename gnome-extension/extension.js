@@ -1,9 +1,10 @@
-'use strict';
-
-const { Gio, GLib, St } = imports.gi;
-const Main = imports.ui.main;
-const PanelMenu = imports.ui.panelMenu;
-const PopupMenu = imports.ui.popupMenu;
+import St from 'gi://St';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 // ── SpinIndicator ──────────────────────────────────────────────────────────────
 // PanelMenu.Button subclass that owns the tray icon lifecycle.
@@ -215,26 +216,22 @@ class SpinIndicator extends PanelMenu.Button {
 }
 
 // ── Extension lifecycle ────────────────────────────────────────────────────────
-let _indicator = null;
+export default class SpinExtension extends Extension {
+  enable() {
+    log('[spin-indicator] enable()');
+    this._indicator = new SpinIndicator();
+    this._indicator._createUI();
+    Main.panel.addToStatusArea('spin-indicator', this._indicator);
+    this._indicator._startPolling();
+  }
 
-function init() {
-  log('[spin-indicator] init()');
-}
-
-function enable() {
-  log('[spin-indicator] enable()');
-  _indicator = new SpinIndicator();
-  _indicator._createUI();
-  Main.panel.addToStatusArea('spin-indicator', _indicator);
-  _indicator._startPolling();
-}
-
-function disable() {
-  log('[spin-indicator] disable()');
-  if (_indicator !== null) {
-    _indicator._stopPolling();
-    _indicator.menu.removeAll(); // Clean up menu items before destroy to prevent memory leaks
-    _indicator.destroy();
-    _indicator = null;
+  disable() {
+    log('[spin-indicator] disable()');
+    if (this._indicator !== null) {
+      this._indicator._stopPolling();
+      this._indicator.menu.removeAll(); // Clean up menu items before destroy to prevent memory leaks
+      this._indicator.destroy();
+      this._indicator = null;
+    }
   }
 }
