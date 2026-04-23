@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: GNOME System Tray Indicator
 status: executing
-stopped_at: Completed 07-installation-04-PLAN.md
-last_updated: "2026-04-01T06:32:47.888Z"
-last_activity: 2026-04-01
+stopped_at: "Quick 260423-l69 code committed (63f50ba); human verification pending for Task 2"
+last_updated: "2026-04-23T13:22:53Z"
+last_activity: 2026-04-23
 progress:
   total_phases: 4
   completed_phases: 4
@@ -40,6 +40,7 @@ See: .planning/PROJECT.md (updated 2026-03-31)
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260331-ggw | Suppress ghostty stderr noise when launching windows | 2026-03-31 | 3527ff1 | [260331-ggw-suppress-ghostty-stderr-noise-when-launc](./quick/260331-ggw-suppress-ghostty-stderr-noise-when-launc/) |
+| 260423-l69 | Allow multiple `spin claude` invocations in same directory (append windows instead of killing session) — human verify pending | 2026-04-23 | 63f50ba | [260423-l69-allow-multiple-spin-claude-invocations-i](./quick/260423-l69-allow-multiple-spin-claude-invocations-i/) |
 
 ## Accumulated Context
 
@@ -74,9 +75,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T06:29:06.788Z
-Stopped at: Completed 07-installation-04-PLAN.md
-Resume file: None
+Last session: 2026-04-23T13:22:53Z
+Stopped at: Quick 260423-l69 code committed (63f50ba) — Task 2 (human-verify) pending
+Resume file: .planning/quick/260423-l69-allow-multiple-spin-claude-invocations-i/260423-l69-SUMMARY.md
 
 ---
 
