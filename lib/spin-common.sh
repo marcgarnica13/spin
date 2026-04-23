@@ -29,6 +29,17 @@ TREE_BRANCH="├─"
 TREE_LAST="└─"
 TREE_PIPE="│"
 
+state_to_icon_char() {
+  case "$1" in
+    working)    echo "●" ;;
+    waiting)    echo "◉" ;;
+    permission) echo "◉" ;;
+    idle)       echo "○" ;;
+    exited)     echo "○" ;;
+    *)          echo "○" ;;
+  esac
+}
+
 spin_die() {
   echo "${RED}error:${RESET} $*" >&2
   exit 1
