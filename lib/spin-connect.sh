@@ -3,6 +3,7 @@
 
 spin_connect() {
   local target="${1:-}"
+  local window="${2:-}"
 
   # Step 1: enumerate all spin sessions
   local sessions
@@ -34,7 +35,12 @@ spin_connect() {
     fi
 
     # Attach to named session — CONN-03 / CONN-05 / D-08 / D-09
-    ghostty -e tmux attach -t "$target" 2>/dev/null &
+    if [[ -n "$window" ]]; then
+      tmux select-window -t "$target:$window" 2>/dev/null
+      ghostty -e tmux attach -t "$target:$window" 2>/dev/null &
+    else
+      ghostty -e tmux attach -t "$target" 2>/dev/null &
+    fi
     disown
     return 0
   fi

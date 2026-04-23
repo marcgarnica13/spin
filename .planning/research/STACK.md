@@ -1,8 +1,18 @@
-# Stack Research: tmux Session Management & Process State Detection
+# Stack Research: GNOME System Tray Indicator
 
-**Domain:** tmux-based CLI session manager with idle state detection
+**Domain:** GNOME Shell Extension for system tray status indicator with dropdown menu
 **Researched:** 2026-03-31
-**Confidence:** HIGH (verified with tmux documentation and existing implementation validation)
+**Confidence:** HIGH
+
+## Executive Summary
+
+Add a GNOME Shell extension (written in GJS/JavaScript) that displays a system tray icon in the top bar with color-coded session state and a dropdown menu for one-click session connection. The extension bridges the existing bash CLI (`spin status`) with GNOME Shell's panel via subprocess execution and file polling.
+
+**Technology Stack Decision:** GNOME Shell Extension (native) over AppIndicator because:
+- GNOME 50+ standardized on ESM modules and native extensions
+- AppIndicator relies on deprecated DBus interface
+- AppIndicator requires separate library and extension enablement
+- Direct extension approach gives full UI control and simpler distribution
 
 ## Recommended Stack
 
@@ -10,195 +20,214 @@
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| tmux | 3.0+ | Terminal multiplexer for session/pane management | Industry standard for parallel session management. Provides built-in pane tracking, content capture, and activity monitoring via format variables. Critical for reliability over custom solutions. |
-| bash | 4.0+ | Shell scripting for CLI tool orchestration | Pure bash keeps dependencies minimal and avoids external tool complexity. Current implementation validates this works reliably across Linux systems. |
-| procfs (/proc/$pid) | Linux | Process tree inspection for Claude detection | Direct PID inspection via `/proc/$pid/cmdline` is more reliable than `ps` parsing. Provides guaranteed access to full command lines without reliance on ps output formatting. |
-| tmux format variables | 3.0+ feature set | Time-based activity tracking without polling | Built-in format specifiers like `window_activity` and `pane_unseen_changes` provide activity state without custom monitoring. Officially maintained, always accurate. |
+| **GNOME Shell Extension Framework** | 50+ | Native panel integration | Standard GNOME architecture. ESM module system (GNOME 45+) is stable. Extensions are first-class citizens in GNOME UI. |
+| **GJS (GNOME JavaScript)** | 1.78+ | JavaScript runtime for extensions | Official GNOME language bindings. Full access to Shell APIs. Better DX than C/Vala for UI. |
+| **ES6 Modules (ESM)** | GNOME 45+ | Extension module system | Mandatory in GNOME 45+. Modern JavaScript standard. Better than legacy imports. |
+| **PanelMenu (Shell UI)** | Built-in | Create top bar button and dropdown menu | Standard GNOME pattern. `PanelMenu.Button` provides button + menu + activate signals. |
+| **Gio.Subprocess** | Built-in | Execute bash CLI from extension | Official API for spawning external processes. Handles I/O safely. Preferred over raw GLib spawn. |
 
-### Session State Detection Toolkit
+### Supporting Libraries & APIs
 
-| Library/Tool | Purpose | How to Use | Confidence |
-|------------|---------|-----------|------------|
-| `tmux capture-pane -p -S -10` | Capture recent pane output | Extract last 10 lines for prompt/permission detection | HIGH — Core to current working implementation |
-| `tmux list-panes -F '#{pane_pid}'` | Get pane process IDs | Extract PID to walk process tree and find Claude process | HIGH — Verified in current code |
-| `pgrep -P $pid` | Find child processes | Walk tree: shell → claude → node to verify Claude is running | HIGH — Standard Unix tool, reliable for process discovery |
-| `cat /proc/$pid/cmdline` | Read process command line | Verify if process is claude CLI by searching command string | HIGH — Direct kernel source, no shell parsing dependencies |
-| `window_activity` (tmux format) | Get Unix timestamp of last window activity | `tmux display-message -t session:window -p '#{window_activity}'` | MEDIUM — Works but window-level granularity, not pane-level |
+| Library | Version | Purpose | When to Use |
+|---------|---------|---------|-------------|
+| **GLib.timeout_add_seconds()** | Built-in | Polling timer | Refresh status every 20s (align with `spin status` interval). Part of main loop integration. |
+| **Gio.File** | Built-in | File system access | Read cached status from temporary file if polling subprocess proves too slow. |
+| **St (Shell Toolkit)** | Built-in | UI elements | `St.Icon`, `St.Label` for visual status indicators in dropdown menu. |
+| **Main.panel.addToStatusArea()** | Built-in | Add button to top bar | Standard integration point for status area indicators. |
 
-### Idle State Detection Strategy
+## Integration Pattern: Bash ↔ Extension
 
-| Technique | Approach | Reliability | When to Use |
-|-----------|----------|-------------|------------|
-| **Prompt Detection** (current) | Grep pane content for `^\s*>\s*$` pattern | HIGH | Immediate state detection, works with Claude Code's prompt format |
-| **Pane Content Analysis** | Capture last N lines, search for prompts/permission patterns | HIGH | Handles all modal states (waiting, permission) in single pass |
-| **Absence of Change** | Use `pane_unseen_changes` or compare content snapshots | MEDIUM | Indicates idle, but requires baseline comparison; adds complexity for marginal value |
-| **Process Activity** | Check if Claude process consuming CPU/reading input | LOW | Unreliable — Claude can be idle while process is still running; adds polling overhead |
-| **20s Refresh Interval** | Poll state every 20s instead of 2s | HIGH | Reduces monitoring overhead by 10x; 20s is acceptable for human-scale state changes |
+### Recommended: Subprocess Polling with JSON Output
 
----
+**Flow:**
+1. Extension calls `spin status --json` every 20 seconds via `Gio.Subprocess`
+2. Bash script outputs JSON with current session states: `[{name, state, pid}, ...]`
+3. Extension parses JSON, updates icon color (green/yellow/red), refreshes dropdown menu
+4. On click, extension calls `spin connect <session>` via `Gio.Subprocess`
 
-## Installation & Usage Patterns
+**Why this approach:**
+- Avoids D-Bus complexity (no need to register service)
+- Reuses existing bash infrastructure (`spin status`, `spin connect`)
+- Stateless: no daemon, no IPC infrastructure
+- Straightforward testing: subprocess output is predictable
 
-### Core Commands Used in Spin
+### Alternative (Not Recommended): D-Bus Service
 
-```bash
-# Get active spin sessions
-tmux list-sessions -F '#{session_name}' | grep "^spin-"
+- Requires registering D-Bus service in bash (complex)
+- Adds daemon complexity for what should be polling
+- Breaks portable bash philosophy
 
-# Get pane PID for process tree inspection
-tmux list-panes -t "session:window" -F '#{pane_pid}' | head -1
+### Not Viable: Direct File Monitoring
 
-# Capture pane content for prompt/permission detection
-tmux capture-pane -p -t "session:window.pane" -S -10
+- `inotify` requires setting up watches on tmux state
+- tmux env vars don't trigger filesystem events
+- File polling is simpler and aligns with current refresh interval
 
-# Get window activity timestamp (for future: idle detection by time)
-tmux display-message -t "session:window" -p '#{window_activity}'
+## Installation & Distribution
 
-# Store metadata for later retrieval
-tmux set-environment -t session VAR_NAME value
-tmux show-environment -t session VAR_NAME
+| Aspect | Approach | Notes |
+|--------|----------|-------|
+| **Extension Directory** | `~/.local/share/gnome-shell/extensions/spin@example.local/` | User-level installation. System-wide via `/usr/share/gnome-shell/extensions/` if shipped with `make install`. |
+| **Metadata** | `metadata.json` | UUID: `spin@example.local`, name: "Spin", description, shell-version: `[50]` (or range). |
+| **Settings Schema** | GSettings via `schemas/org.gnome.shell.extensions.spin.gschema.xml` | Optional: store preferences like refresh interval, session filter. |
+| **Enable/Disable** | `gnome-extensions enable spin@example.local` | User or installer script. Extensions auto-load after restart. |
+| **Configuration** | Via Extension Manager UI or `gsettings set` | Preference GUI optional; CLI fully supports it. |
+
+## Project Structure
+
+```
+extensions/
+  spin@example.local/
+    extension.js          # Main extension class, PanelMenu setup
+    ui/
+      panelMenu.js        # Menu item rendering
+      statusIcon.js       # Icon color logic
+    lib/
+      statusParser.js     # Parse JSON from spin status
+    metadata.json         # Extension metadata
+    schemas/
+      org.gnome.shell.extensions.spin.gschema.xml  # (Optional) Settings
 ```
 
-### Idle State Detection: Implementation Pattern
+## Development Requirements
 
-The recommended approach is **multi-layer prompt detection with no additional overhead**:
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **GNOME JavaScript SDK** | 1.78+ | GJS interpreter, bindings, type definitions. `gnome-shell` package provides runtime. |
+| **gnome-shell** | 50+ | GNOME Shell runtime for testing. `apt install gnome-shell` or distro equivalent. |
+| **Text Editor / IDE** | Any | GNOME JavaScript guide recommends GNOME Builder or VS Code with GNOME Shell extension support. |
+| **`dbus-run-session`** | Included in dbus | Run test extension in isolated DBus session. Prevents conflicts with live shell. |
 
-```bash
-detect_idle_state() {
-  local session="$1" widx="$2"
-  
-  # Layer 1: Is Claude process running?
-  local pane_pid
-  pane_pid=$(tmux list-panes -t "$session:$widx" -F '#{pane_pid}' 2>/dev/null | head -1)
-  [[ -z "$pane_pid" ]] && echo "exited" && return
-  
-  # Layer 2: Walk process tree to find Claude
-  local has_claude=false
-  if pgrep -P "$pane_pid" | xargs -I {} bash -c 'grep -q claude /proc/{}/cmdline 2>/dev/null' 2>/dev/null; then
-    has_claude=true
-  fi
-  [[ "$has_claude" == false ]] && echo "exited" && return
-  
-  # Layer 3: Analyze pane content for state indicators
-  local pane_content
-  pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -10 2>/dev/null || true)
-  
-  # Waiting for input: Claude's prompt is just ">"
-  if echo "$pane_content" | grep -qE '^\s*>\s*$'; then
-    echo "waiting"
-    return
-  fi
-  
-  # Needs permission: Shows "Allow once/Deny" or "Yes/No" prompts
-  if echo "$pane_content" | grep -qE '(Allow once|Allow always|Deny|Yes.*No.*\?)'; then
-    echo "permission"
-    return
-  fi
-  
-  # Otherwise: actively working
-  echo "working"
-}
+## Key API Patterns
+
+### 1. Create Panel Button with Menu
+
+```javascript
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+
+const button = new PanelMenu.Button(0.0, 'Spin Indicator');
+const icon = new St.Icon({
+  icon_name: 'media-record-symbolic',
+  style_class: 'system-status-icon',
+});
+button.add_child(icon);
+Main.panel.addToStatusArea('spin-indicator', button);
 ```
 
----
+### 2. Spawn Subprocess with JSON Output
+
+```javascript
+import Gio from 'gi://Gio';
+
+Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
+
+const proc = Gio.Subprocess.new(
+  ['spin', 'status', '--json'],
+  Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+);
+
+const [stdout, stderr] = await proc.communicate_utf8_async(null, null);
+const status = JSON.parse(stdout);
+```
+
+### 3. Polling Timer
+
+```javascript
+const updateStatusId = GLib.timeout_add_seconds(
+  GLib.PRIORITY_DEFAULT,
+  20,  // seconds, aligned with spin status interval
+  () => {
+    this._updateStatus();
+    return GLib.SOURCE_CONTINUE;  // Keep polling
+  }
+);
+
+// In disable():
+GLib.source_remove(updateStatusId);
+```
+
+### 4. Menu Item Click Handler
+
+```javascript
+const item = new PopupMenu.PopupMenuItem('Session Name');
+item.connect('activate', () => {
+  // Execute: spin connect <session>
+  Gio.Subprocess.new(
+    ['spin', 'connect', sessionName],
+    Gio.SubprocessFlags.STDOUT_PIPE
+  );
+});
+menu.addMenuItem(item);
+```
 
 ## Alternatives Considered
 
-| Choice | Alternative | When to Use Alternative | Why Not Used |
-|--------|-------------|------------------------|----|
-| tmux built-in activity tracking | Custom shell hooks / callback system | If you owned the Claude Code codebase | We can't modify Claude Code; tmux is the only external interface |
-| Prompt pattern matching (current) | Process state machines (D, S, R codes) | If tracking OS-level process state | Claude process stays running idle; OS state doesn't indicate CLI readiness |
-| 20s refresh interval | 2s refresh interval (current baseline) | For security-critical operations | 20s acceptable for human monitoring; 10x reduction in polling overhead justifies longer latency |
-| `window_activity` timestamp | Per-pane activity tracking | If windows had single panes | Multiple panes per window; `window_activity` only tracks window-level changes |
-| Bash-only process inspection | Using `ps` with complex parsing | For simple process listing | `/proc/$pid/cmdline` is more reliable; avoids shell variable expansion edge cases in `ps` output |
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| **GNOME Shell Extension (native)** | AppIndicator + libappindicator | If supporting KDE Plasma or non-GNOME desktops. Adds complexity; most Spin users are on GNOME. |
+| **GNOME Shell Extension (native)** | D-Bus service in bash | If needing two-way event signaling (bash → extension). Adds daemon overhead; polling is sufficient. |
+| **Subprocess polling** | File-based status cache | If subprocess overhead is high. Requires inotify or periodic file reading; more complex. |
+| **GSettings schema (optional)** | Hardcoded config | If user wants to customize refresh interval or hide indicator. Not critical for MVP. |
 
----
+## What NOT to Use
 
-## What NOT to Use & Why
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| **Legacy imports (`imports.ui.main`)** | Broken in GNOME 45+. ESM is mandatory. | Use `resource:///org/gnome/shell/...` with `import` statements. |
+| **libappindicator library** | Deprecated. AppIndicator extension adds extra dependency and enable step. | Write native GNOME Shell extension; simpler and standard. |
+| **Shell Command Execution via shell** | Unsafe, shell injection risk. | Use `Gio.Subprocess.new()` with array args; no shell parsing needed. |
+| **Callback-based async** | Old GJS pattern. Verbose, error-prone. | Use `Gio._promisify()` + async/await (GJS 1.76+). |
+| **Persistent background service** | Breaks pure bash philosophy, adds complexity. | Use polling in extension; stateless, simple. |
+| **Direct socket/named pipes** | Manual protocol implementation. | Use D-Bus (if IPC needed) or subprocess stdout. |
 
-| Avoid | Specific Problem | Use Instead |
-|-------|-----------------|-------------|
-| **Polling with 2s interval** | Creates 30 wake-ups/minute; unnecessary overhead for monitoring dashboard | 20s interval reduces to 3 wake-ups/minute while keeping state detection responsive to user timescale |
-| **Using `ps aux` for process detection** | Output format varies across systems; fragile parsing with grep/awk; can miss commands with spaces or special characters | Direct `/proc/$pid/cmdline` inspection; guaranteed format (null-separated); works across all Linux variants |
-| **Relying on process CPU time or memory** | Claude can be idle but still have running child processes consuming resources; not indicative of user-facing state | Pane content analysis (prompts) directly reflects what user sees; single source of truth |
-| **Custom shell hooks in Claude's environment** | Claude Code doesn't expose hook system; would require wrapping the claude binary | Use tmux's built-in pane content capture; works without modifying Claude's runtime |
-| **Terminal emulator-specific monitoring** | Ghostty-specific commands don't generalize; creates platform coupling | Stay with tmux-level monitoring; works across any terminal emulator |
-| **Subshell spawning in tight loops** | Each `pgrep` or `cat /proc/*/cmdline` in a loop spawns processes; compounds overhead at 2s intervals | Pre-compute process tree once per detection cycle; walk it inline in bash |
+## Version Compatibility
 
----
+| Component | Version | Rationale |
+|-----------|---------|-----------|
+| **GNOME Shell target** | 50+ | Current LTS/standard. ESM mandatory. Earlier versions (40-47) need legacy code; not worth complexity. |
+| **GJS** | 1.78+ | Async/await support. ESM module system. Bundled with GNOME 50. |
+| **Bash** | 4+ | Already required by spin CLI. No new dependency. |
+| **Linux kernel** | 5.10+ | Modern systemd, DBus, `/proc` filesystem. Spin already requires this. |
 
-## Key Technical Decisions
+## Bash Integration Points
 
-### 1. Why Content Capture Over Process Polling
+### New CLI Commands
 
-**Decision:** Analyze pane content (`capture-pane`) instead of monitoring process state.
+| Command | Purpose | Output Format |
+|---------|---------|----------------|
+| `spin status --json` | Get session status for extension | JSON array: `[{name, state, pid, idle}]` |
+| `spin connect <session>` | Existing; extension calls this on menu click | Opens Ghostty window (existing behavior) |
 
-**Rationale:**
-- Claude's idle state is **terminal-visible**, not process-visible
-- The prompt `>` is the ground truth of "waiting for input"
-- Process tree inspection only confirms Claude is still alive; says nothing about state
-- One `capture-pane` call (fast) beats walking process tree + checking CPU/memory
+**Minimal changes to existing bash:**
+- Add `--json` flag to `spin status` command
+- No refactoring of core logic
+- Backwards compatible with existing terminal output
 
-**Implementation:** Current code already does this correctly. The pane content analysis is the bottleneck prevention.
+## Stack Summary Table
 
-### 2. Why 20s Refresh Instead of 2s
-
-**Decision:** Change refresh interval from 2s to 20s.
-
-**Rationale:**
-- At 2s: 30 system calls/minute per session
-- At 20s: 3 system calls/minute per session
-- User perceives state changes at human timescale (seconds to minutes of waiting)
-- 20s latency is negligible for a monitoring dashboard
-- Reduces terminal flicker and system load 10x
-
-**Trade-off Accepted:** If Claude finishes work in 5s, refresh will show it in 5-20s instead of <2s. This is acceptable for a monitoring dashboard (not a real-time alert system).
-
-### 3. Why No Additional "Idle" State Yet
-
-**Decision:** Don't add idle state beyond current {working, waiting, permission, exited}.
-
-**Rationale:**
-- Idle would need to track: time since last prompt + distinguishing between "waiting at prompt" vs "idle at prompt"
-- Current "waiting" already indicates ready for input = idle
-- Adding time-based idle detection requires timestamp tracking + state machine
-- Marginal value: user can already see "waiting" and know Claude is idle
-
-**Phase-2 consideration:** If UX testing shows users want "idle" as distinct state, add `pane_unseen_changes` check to detect panes with no new output for N seconds.
-
----
-
-## Confidence Assessment
-
-| Area | Level | Notes |
-|------|-------|-------|
-| tmux format variables & commands | HIGH | Verified via `man tmux` FORMATS section; `window_activity`, `pane_pid`, `pane_active` are stable features since tmux 3.0 |
-| Process tree inspection via /proc | HIGH | Current implementation works correctly; `/proc/$pid/cmdline` is POSIX-like standard across all Linux variants |
-| Prompt pattern matching | HIGH | Tested against Claude Code output; patterns for `>` and permission prompts are stable |
-| 20s refresh interval performance | HIGH | No overhead concerns; system load dominated by Claude Code itself, not monitoring |
-| Pane content capture reliability | HIGH | tmux `capture-pane` is core feature with decades of reliability; part of every tmux release |
-
----
-
-## Gaps & Future Research
-
-- **Claude Code's exact terminal output:** If Claude changes prompt format (e.g., from `>` to `claude>`), patterns need update. Recommend monitoring Claude's release notes for prompt changes.
-- **Permission prompt variations:** Tested against observed patterns; if new permission types added to Claude, pattern may need extension.
-- **Pane state beyond content:** If tmux adds first-class "idle time" tracking in future versions, could replace content parsing. Currently not available (checked tmux 3.4 features).
-- **Multiple terminal emulator support:** Currently Ghostty-only. Research for future phases if needed.
-
----
+| Layer | Technology | Version | Status |
+|-------|-----------|---------|--------|
+| **UI Framework** | GNOME Shell | 50+ | Existing infrastructure |
+| **Language** | GJS/JavaScript | 1.78+ | Bundled with GNOME 50 |
+| **Panel Integration** | PanelMenu API | Built-in | Stable, well-documented |
+| **Process Execution** | Gio.Subprocess | Built-in | Recommended by GNOME |
+| **Polling** | GLib.timeout_add_seconds | Built-in | Standard main loop integration |
+| **Backend** | spin bash CLI | 1.0+ | Existing, no changes to core |
+| **IPC** | Subprocess JSON stdout | — | Simple, no new dependencies |
 
 ## Sources
 
-- [tmux manual page - FORMATS section](https://man7.org/linux/man-pages/man1/tmux.1.html) — Format variables documentation including `window_activity`, `pane_pid`, `pane_unseen_changes`
-- [GitHub: tmux/tmux Advanced Use](https://github.com/tmux/tmux/wiki/Advanced-Use) — monitor-activity and monitor-silence options for future enhancement
-- [Baeldung: tmux Session Logging and Pane Content Extraction](https://www.baeldung.com/linux/tmux-logging) — Best practices for `capture-pane` with line range specifications
-- [Linux man pages: stat command](https://linux.die.net/man/2/stat) — File timestamp inspection for potential future activity tracking via /proc timestamps
-- Current implementation validation: `spin-status.sh` successfully uses all techniques documented here
+- [GNOME JavaScript Guide: Extension Development](https://gjs.guide/extensions/development/creating.html) — Core extension structure, ESM modules
+- [GNOME JavaScript: PanelMenu and PopupMenu](https://gjs.guide/extensions/topics/popup-menu.html) — UI patterns, menu item handlers
+- [GNOME JavaScript: Subprocess Execution](https://gjs.guide/guides/gio/subprocesses.html) — Process spawning, async I/O
+- [GNOME JavaScript: D-Bus Integration](https://gjs.guide/guides/gio/dbus.html) — Context for why subprocess preferred
+- [GNOME 45 Extension Migration Guide](https://gjs.guide/extensions/upgrading/gnome-shell-45.html) — ESM requirements, version breaking changes
+- [GNOME 50 Release Notes](https://release.gnome.org/50/) — Current stable target, no indicator changes
+- [AppIndicator Support Extension](https://extensions.gnome.org/extension/615/appindicator-support/) — AppIndicator architecture reference
+- [Ubuntu gnome-shell-extension-appindicator Repository](https://github.com/ubuntu/gnome-shell-extension-appindicator) — AppIndicator architecture reference
 
 ---
 
-*Stack research for: tmux-based parallel Claude Code session manager*
-*Domain: Terminal multiplexer integration + process state detection*
+*Stack research for: GNOME system tray indicator with dropdown menu*
 *Researched: 2026-03-31*

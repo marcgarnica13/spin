@@ -28,6 +28,10 @@ spin_claude() {
   # Store the project directory for spin status
   tmux set-environment -t "$session" SPIN_CWD "$PWD"
 
+  # Start background status daemon to inject state icons into tmux window names
+  spin_status_daemon "$session" &
+  disown
+
   ghostty -e tmux attach -t "$session" 2>/dev/null &
   disown
 }

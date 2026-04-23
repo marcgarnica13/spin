@@ -36,6 +36,10 @@ case "${1:-}" in
   claude)
     shift
     [[ $# -eq 0 ]] && spin_die "usage: spin claude <name1> [name2] ..."
+    # shellcheck source=../lib/spin-status.sh
+    source "$SPIN_LIB/spin-status.sh"
+    # shellcheck source=../lib/spin-status-daemon.sh
+    source "$SPIN_LIB/spin-status-daemon.sh"
     # shellcheck source=../lib/spin-claude.sh
     source "$SPIN_LIB/spin-claude.sh"
     spin_claude "$@"

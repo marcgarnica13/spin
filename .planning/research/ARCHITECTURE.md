@@ -1,229 +1,324 @@
-# Architecture Patterns: Spin Session Manager
+# Architecture Patterns: GNOME System Tray Indicator
 
-**Domain:** tmux-based parallel CLI session manager
+**Domain:** GNOME Shell extension for session monitoring and connection
 **Researched:** 2026-03-31
 
 ## Recommended Architecture
 
-Spin follows a simple, proven layered architecture:
-
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      User Shell                         │
-│        (spin claude ... / spin status / spin connect)   │
-└────────────────────┬────────────────────────────────────┘
-                     │
-        ┌────────────┴────────────┐
-        ↓                         ↓
-    ┌─────────────┐        ┌──────────────┐
-    │   CLI Core  │        │   Dashboard  │
-    │ (bin/spin)  │        │ (spin-status)│
-    └──────┬──────┘        └──────┬───────┘
-           │                      │
-    ┌──────┴──────────────────────┴──────┐
-    │                                     │
-    ↓                                     ↓
-┌─────────────────────┐        ┌──────────────────────┐
-│  Session Launcher   │        │  State Detector      │
-│  (spin-claude)      │        │  (detect_claude_    │
-│                     │        │   state)             │
-│ - Create tmux sess  │        │                      │
-│ - Launch Claude CLI │        │ - Walk process tree  │
-│ - Store metadata    │        │ - Analyze pane text  │
-└────────┬────────────┘        └────────┬─────────────┘
-         │                             │
-         └─────────────┬───────────────┘
-                       ↓
-            ┌──────────────────────┐
-            │  Tmux Interface      │
-            │                      │
-            │ - list-sessions      │
-            │ - list-panes         │
-            │ - capture-pane       │
-            │ - display-message    │
-            │ - set-environment    │
-            │ - send-keys          │
-            └────────┬─────────────┘
-                     │
-           ┌─────────┴──────────┐
-           ↓                    ↓
-    ┌──────────────┐    ┌──────────────┐
-    │  Tmux State  │    │   Ghostty    │
-    │              │    │              │
-    │ - Sessions   │    │ - Window     │
-    │ - Windows    │    │   creation   │
-    │ - Panes      │    │ - Attach cmds│
-    │ - Metadata   │    │              │
-    └──────────────┘    └──────────────┘
-           │                    │
-           └────────┬───────────┘
-                    ↓
-         ┌──────────────────────┐
-         │  /proc Filesystem    │
-         │  (Process Inspection)│
-         │                      │
-         │ - /proc/$pid/cmdline │
-         │ - pgrep tree walk    │
-         └──────────────────────┘
+GNOME Shell (Display Server)
+  │
+  ├── Extension Process (GJS/JavaScript in GNOME 50 runtime)
+  │   │
+  │   ├── extension.js (Extension class, entry point)
+  │   ├── ui/statusIcon.js (Icon color logic)
+  │   ├── ui/panelMenu.js (Menu rendering)
+  │   └── lib/statusParser.js (JSON parsing)
+  │
+  └── [Subprocess] → spin status --json (Bash CLI)
+        │
+        └── [Read] → tmux session state
+              │
+              └── [IPC] → tmux socket at /tmp/tmux-*/
+                    │
+                    └── [Inspect] → /proc/$pid/cmdline, pane content
+
+User Click → PanelMenu.activate() → [Subprocess] → spin connect <session>
+  │
+  └── [Execute] → ghostty -e tmux attach -t <session>
 ```
 
 ## Component Boundaries
 
-| Component | Responsibility | Communicates With | Design Notes |
-|-----------|---------------|-------------------|--------------|
-| **bin/spin** | CLI entry point, command dispatch | lib/spin-*.sh files | Pure dispatcher; no business logic |
-| **spin-claude.sh** | Session creation and launch | tmux, Ghostty | Creates sessions, stores CWD metadata, spawns Ghostty |
-| **spin-status.sh** | Live session monitoring | tmux, /proc | Refreshes every 2s (soon 20s), displays dashboard |
-| **detect_claude_state()** | State detection logic | tmux capture-pane, pgrep, /proc | Three-layer state machine: process alive, pane content analysis |
-| **spin-common.sh** | Shared utilities | All modules | Colors, icons, error handling, constants |
+| Component | Responsibility | Communicates With | Technology |
+|-----------|---------------|-------------------|-----------|
+| **extension.js** | Extension lifecycle (enable/disable), main loop integration | GNOME Shell API, ui/* modules | GJS, PanelMenu, GLib |
+| **ui/statusIcon.js** | Map session state → icon color/visibility | statusParser.js, extension.js | GJS, St.Icon |
+| **ui/panelMenu.js** | Render menu items dynamically from status | statusParser.js, extension.js | GJS, PopupMenu |
+| **lib/statusParser.js** | Parse `spin status --json` output into data structure | subprocess stdout | JavaScript |
+| **spin status --json** | Query tmux for session state, output JSON | tmux CLI | Bash 4+ |
+| **spin connect <session>** | Open Ghostty window attached to session | tmux, ghostty | Bash 4+, Ghostty |
 
-## State Detection Pipeline
-
-The core intelligence: how spin determines what Claude is doing.
-
-```
-Input: session:window index
-  │
-  ├─ Layer 1: Is Claude running?
-  │   └─ Get pane PID: tmux list-panes -F '#{pane_pid}'
-  │   └─ Walk process tree: pgrep -P $pane_pid (2 levels)
-  │   └─ Search cmdline: grep claude /proc/$pid/cmdline
-  │   └─ Result: alive=true or alive=false
-  │      └─ If false → return "exited"
-  │
-  ├─ Layer 2: Analyze pane content
-  │   └─ Capture last 10 lines: tmux capture-pane -p -S -10
-  │   └─ Remove empty lines, get last 3 meaningful lines
-  │
-  └─ Layer 3: Pattern matching
-      ├─ Pattern: "^\s*>\s*$" (Claude's input prompt)
-      │  └─ Match → return "waiting"
-      │
-      ├─ Pattern: "(Allow once|Deny|Yes.*No)" (permission)
-      │  └─ Match → return "permission"
-      │
-      └─ No match → return "working"
-
-Output: state string (exited | waiting | permission | working)
-```
-
-**Why this layered approach:**
-1. **Layer 1 (Process check)**: Early exit if Claude isn't running; cheap operation
-2. **Layer 2 (Content capture)**: One tmux call gets all info needed for layers 3+
-3. **Layer 3 (Pattern matching)**: Pure bash string matching; no external tools
-
-## Refresh Loop Architecture
-
-Dashboard polling cycle (to be optimized from 2s to 20s):
+## Data Flow
 
 ```
-┌─ Main Loop: while true; do
-│
-├─ Clear screen
-├─ Display header with refresh interval info
-│
-├─ Get all active spin sessions
-│  └─ tmux list-sessions -F '#{session_name}' | grep "^spin-"
-│
-├─ For each session:
-│  │
-│  ├─ Get project directory from environment
-│  │  └─ tmux show-environment -t session SPIN_CWD
-│  │
-│  ├─ List windows in session
-│  │  └─ tmux list-windows -t session -F '#{window_name}:#{window_index}'
-│  │
-│  └─ For each window:
-│     │
-│     ├─ Detect state → detect_claude_state(session, window_idx)
-│     ├─ Map state to icon + label + color
-│     └─ Print formatted output with tree drawing
-│
-├─ Print legend
-│
-├─ Sleep 20 seconds (CHANGE FROM 2s)
-│
-└─ Loop
-
-Signals handled:
-  - SIGINT (Ctrl-C) → Cleanup cursor, exit gracefully
-  - SIGTERM → Same cleanup, exit
+┌─────────────────────────────────────────────────────────────┐
+│ Extension Startup (enable())                                │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Create PanelMenu.Button()                                │
+│ 2. Add St.Icon() with status color                          │
+│ 3. Create PopupMenu instance                                │
+│ 4. Register GLib.timeout_add_seconds(20, updateStatus)      │
+│ 5. Return early; timer will trigger first update            │
+└─────────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Every 20 Seconds (updateStatus callback)                    │
+├─────────────────────────────────────────────────────────────┤
+│ 1. Spawn: Gio.Subprocess(['spin', 'status', '--json'])      │
+│ 2. Wait: communicate_utf8_async() → collect stdout          │
+│ 3. Parse: JSON.parse(stdout) → [{name, state, pid}, ...]    │
+│ 4. Update icon color based on aggregate state               │
+│ 5. Rebuild menu: remove old items, add new from JSON        │
+│ 6. Connect activate handlers to items                       │
+│ 7. Return GLib.SOURCE_CONTINUE to keep polling              │
+└─────────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────────┐
+│ User Clicks Menu Item                                       │
+├─────────────────────────────────────────────────────────────┤
+│ 1. activate signal fires on PopupMenuItem                   │
+│ 2. Handler extracts session name                            │
+│ 3. Spawn: Gio.Subprocess(['spin', 'connect', name])         │
+│ 4. Don't wait; let subprocess run in background             │
+│ 5. Menu closes naturally                                    │
+│ 6. Ghostty window opens (user sees new terminal)            │
+└─────────────────────────────────────────────────────────────┘
+         ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Extension Shutdown (disable())                              │
+├─────────────────────────────────────────────────────────────┤
+│ 1. GLib.source_remove(updateStatusId)                       │
+│ 2. Main.panel.remove(indicator)                             │
+│ 3. Cleanup: null out references (good practice)             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Key design decision:** Refresh is pull-based (poll every 20s), not push-based (event hooks). This avoids complexity of inotify, dbus, or daemon processes.
+## Patterns to Follow
 
-## Anti-Patterns Avoided
+### Pattern 1: ESM Module Imports (GNOME 45+)
 
-| Anti-Pattern | Why We Avoid | Our Approach |
-|--------------|-------------|-------------|
-| Spawning subshells in tight loop | Each `$(...)` spawns a process; 30/min at 2s interval | Pre-compute once per refresh cycle; store in variables |
-| Parsing `ps` output | Format varies by system; fragile with special characters | Direct `/proc/$pid/cmdline` inspection |
-| Background daemon | Would need state management, signal handling, logging | Simple foreground loop with trap handlers |
-| Hardcoded prompt patterns | Claude could change prompt format | Pattern matches observed behavior; documented as "may need update if Claude changes" |
-| Custom state machine | Adds complexity; multiple sources of truth | Three-layer check produces definitive state; no state machine needed |
-| Using `watch` command | Loses control over display formatting, color management | Custom loop with full control |
+**What:** Use ES6 `import` statements; never use legacy `imports.ui`
 
-## Scaling Considerations
+**When:** All GNOME Shell extensions targeting GNOME 45 or later (mandatory)
 
-### At 1-2 sessions (single user typical case)
-- Process tree walk: <10ms
-- Content capture: ~1ms per pane
-- Pattern matching: <1ms
-- Total refresh: <20ms
-- Acceptable at 2s or 20s interval
+**Example:**
+```javascript
+import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import Gio from 'gi://Gio';
 
-### At 5 sessions (power user case)
-- 5 windows typical = 5 state detections
-- Process tree walks: 5 × 10ms = 50ms
-- Content captures: 5 × 1ms = 5ms
-- Pattern matching: 5 × 1ms = 5ms
-- Total refresh: ~60ms
-- Adequate for 20s interval
+export default class SpinExtension extends Extension {
+  // ...
+}
+```
 
-### At 10+ sessions (edge case)
-- Multiple windows per session = 10-20 state checks
-- Process tree walks: 100-200ms
-- Content captures: 10-20ms
-- Pattern matching: 10-20ms
-- Total refresh: 120-240ms
-- **Latency grows linearly with pane count**
-- **20s interval essential at this scale**
+### Pattern 2: Async Subprocess with Promisified Methods
 
-**No bottleneck is problematic:** Even at 10 sessions with 240ms refresh, we're well within the 20s window.
+**What:** Use `Gio._promisify()` to convert callback-based async to async/await
 
-## Future Enhancement Points
+**When:** Spawning external processes; cleaner code, easier error handling
 
-### 1. Idle State Detection (Phase 3+)
-When users want to know "idle at prompt for 5+ minutes":
-- Store `state_changed_at` timestamp in tmux environment
-- Compare current time to timestamp
-- If waiting state for 5+ min, show "idle" label
-- Requires: `date +%s` call, time arithmetic
+**Example:**
+```javascript
+Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 
-### 2. Configurable Refresh Rate
-Add `--interval N` flag to `spin status`:
-- Current: hardcoded 2s or 20s
-- Future: user-configurable 5s, 10s, 30s, 60s
-- For power users who want different tradeoffs
+async _updateStatus() {
+  try {
+    const proc = Gio.Subprocess.new(
+      ['spin', 'status', '--json'],
+      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+    );
+    const [stdout] = await proc.communicate_utf8_async(null, null);
+    const status = JSON.parse(stdout);
+    this._renderMenu(status);
+  } catch (error) {
+    console.error('Failed to get status:', error);
+  }
+}
+```
 
-### 3. Activity Notification
-Extend status with `pane_unseen_changes` tracking:
-- Current: shows current state only
-- Future: mark panes that changed since last check
-- Requires: tracking previous state snapshot
+### Pattern 3: GLib Main Loop Integration for Polling
 
-### 4. Remote Session Support
-Today: local tmux only. Future: over SSH.
-- Would require: SSH config, key forwarding, remote tmux
-- Out of scope for Phase 1-2
+**What:** Use `GLib.timeout_add_seconds()` for periodic tasks; always remove in `disable()`
 
----
+**When:** Anything that needs to repeat (polling, timers, refresh)
+
+**Example:**
+```javascript
+enable() {
+  this._updateStatusId = GLib.timeout_add_seconds(
+    GLib.PRIORITY_DEFAULT,
+    20,
+    () => {
+      this._updateStatus();
+      return GLib.SOURCE_CONTINUE;  // Keep polling
+    }
+  );
+  this._updateStatus();  // Run once immediately
+}
+
+disable() {
+  if (this._updateStatusId) {
+    GLib.source_remove(this._updateStatusId);
+    this._updateStatusId = null;
+  }
+}
+```
+
+### Pattern 4: Dynamic Menu Population with Event Handlers
+
+**What:** Clear menu, rebuild from data, connect handlers to each item
+
+**When:** Data changes (status update, user input) and menu needs refresh
+
+**Example:**
+```javascript
+_renderMenu(status) {
+  this.menu.removeAll();
+  
+  if (status.length === 0) {
+    this.menu.addMenuItem(new PopupMenu.PopupMenuItem('No sessions'));
+    this._showIndicator(false);
+    return;
+  }
+  
+  this._showIndicator(true);
+  
+  for (const session of status) {
+    const item = new PopupMenu.PopupMenuItem(
+      `${session.name} — ${session.state}`
+    );
+    item.connect('activate', () => this._connectSession(session.name));
+    this.menu.addMenuItem(item);
+  }
+}
+```
+
+### Pattern 5: Resource Cleanup on disable()
+
+**What:** Remove all listeners, timers, and UI elements in `disable()`
+
+**When:** Extension is disabled or GNOME Shell restarts
+
+**Example:**
+```javascript
+disable() {
+  if (this._updateStatusId) {
+    GLib.source_remove(this._updateStatusId);
+    this._updateStatusId = null;
+  }
+  
+  // Disconnect all signal handlers
+  this._signalConnections?.forEach(id => {
+    this._indicator?.disconnect(id);
+  });
+  this._signalConnections = [];
+  
+  // Remove UI elements
+  if (this._indicator) {
+    Main.panel.statusArea.remove(this._indicator);
+    this._indicator = null;
+  }
+}
+```
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Blocking the Main Loop with Synchronous Subprocess
+
+**What:** Using `Gio.Subprocess.new()` without async, or calling `wait()` on same thread
+
+**Why bad:** Freezes GNOME Shell UI for 100+ ms while waiting for subprocess. Users see laggy indicator.
+
+**Instead:** Always use `communicate_utf8_async()` with async/await; execution continues on main loop
+
+### Anti-Pattern 2: Forgetting to Remove Timers in disable()
+
+**What:** Creating GLib timeouts but not removing them in `disable()`
+
+**Why bad:** Timeouts keep firing after extension disables, causing memory leaks and crashes
+
+**Instead:** Store timeout ID, always call `GLib.source_remove()` in `disable()`
+
+### Anti-Pattern 3: Updating Menu Without Clearing Old Items
+
+**What:** Calling `this.menu.addMenuItem()` repeatedly without `removeAll()`
+
+**Why bad:** Menu grows unbounded; old items leak memory; duplicate entries visible
+
+**Instead:** Call `this.menu.removeAll()` before rebuilding from data
+
+### Anti-Pattern 4: Parsing JSON with String Manipulation
+
+**What:** Using regex or substring operations on subprocess output
+
+**Why bad:** Fragile, error-prone, hard to maintain when output changes
+
+**Instead:** Always `JSON.parse()` structured output; structure is contract
+
+### Anti-Pattern 5: Legacy imports (`imports.ui`)
+
+**What:** Using `const Main = imports.ui.main` instead of ESM imports
+
+**Why bad:** Broken in GNOME 45+; extension fails to load
+
+**Instead:** Use `import * as Main from 'resource:///org/gnome/shell/ui/main.js'`
+
+## Scalability Considerations
+
+| Concern | At 1-5 Sessions | At 10-20 Sessions | At 100+ Sessions |
+|---------|-----------------|-------------------|------------------|
+| **Menu rendering time** | <10ms, instant | ~20ms, perceptible | ~100ms, noticeable lag |
+| **Subprocess spawn overhead** | Minimal (~1ms) | Acceptable | Consider caching |
+| **JSON parse time** | <1ms | <5ms | <10ms |
+| **Memory footprint** | ~5MB | ~8MB | ~15MB |
+| **Polling frequency impact** | 20s safe | 20s safe | Consider 30-60s interval |
+| **Recommended action** | Use as-is | Use as-is | Add session filtering/search |
+
+**Current design targets 5-20 sessions.** If users run 100+:
+- Implement session filtering (show only "active" sessions)
+- Allow customizing refresh interval via preferences
+- Cache subprocess output between timer ticks
+- Add quick-search dialog (Shift+Click)
+
+## Error Handling Strategy
+
+| Error | Current Handling | User Impact | Mitigation |
+|-------|------------------|-------------|------------|
+| **`spin status --json` command not found** | Silent fail, menu shows "No sessions" | Confusing; looks like no sessions active | Check `$PATH`, show notification if spinning not installed |
+| **Invalid JSON output** | Catch parse error, log to console | Icon appears, clicking does nothing | Add debug logging, validate schema |
+| **`spin connect` fails** | Fire subprocess, ignore exit code | User sees Ghostty error | Log stderr, (optional) show GNOME notification |
+| **tmux socket missing** | `spin status` returns empty JSON | Icon hides; appears healthy | Document that tmux must be running |
+| **subprocess timeout** | GIO has built-in timeout handling | Long gap between updates | Use `communicate_utf8_async()` with timeout parameter |
+
+## Extension vs Daemon Decision
+
+**Why not a persistent daemon in bash?**
+
+1. **Adds complexity:** Daemon lifecycle, socket management, crash recovery
+2. **Breaks Spin philosophy:** Stateless, simple CLI tool
+3. **Unnecessary:** Polling from extension is simpler and sufficient
+4. **Less integrated:** Extension lives in GNOME; daemon is separate process
+5. **Harder to distribute:** Daemon requires systemd unit or similar
+
+**Why subprocess polling is better:**
+
+1. **No extra processes:** Only subprocess runs on demand
+2. **Clean integration:** Extension lifecycle tied to GNOME Shell
+3. **Simple testing:** `spin status --json` output is testable
+4. **Stateless:** No daemon state to manage
+5. **Portable:** Works on any Linux with tmux + bash
+
+## Testing Strategy
+
+| Scenario | Test Approach | Success Criteria |
+|----------|---------------|------------------|
+| **Extension loads** | `gnome-extensions list` shows spin enabled | Extension appears in list |
+| **Icon appears in top bar** | Launch GNOME Shell, check panel | Icon visible with correct color |
+| **Status polling works** | Watch icon color change as sessions start/stop | Color updates within 20s |
+| **Menu renders correctly** | Click icon, inspect menu items | All sessions listed with correct names |
+| **Click-to-open works** | Click menu item, observe Ghostty | Window opens, tmux attached to correct session |
+| **Cleanup on disable** | Disable extension, check `ps aux` | No subprocess processes left running |
 
 ## Sources
 
-- Current implementation: `lib/spin-status.sh`, `lib/spin-claude.sh` validate all documented patterns
-- tmux man page: FORMATS section for command reference
-- Community patterns: Standard tmux pane/session traversal approaches
+- [GNOME JavaScript: Extension Development](https://gjs.guide/extensions/development/creating.html) — Module structure, lifecycle
+- [GNOME JavaScript: Subprocess Execution](https://gjs.guide/guides/gio/subprocesses.html) — Process spawning patterns
+- [GNOME JavaScript: PanelMenu and PopupMenu](https://gjs.guide/extensions/topics/popup-menu.html) — UI patterns
+- [GNOME Shell Extensions Review Guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html) — Cleanup requirements, resource management
 
-*Architecture documentation for: spin tmux session manager*
+---
+
+*Architecture research for: GNOME system tray indicator*
 *Researched: 2026-03-31*

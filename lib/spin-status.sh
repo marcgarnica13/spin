@@ -124,7 +124,7 @@ detect_claude_state() {
 
   # Get last non-empty lines (guard against grep returning 1 on no match)
   local last_lines
-  last_lines=$(echo "$pane_content" | grep -v '^$' | tail -3 || true)
+  last_lines=$(echo "$pane_content" | grep -v '^$' | tail -5 || true)
 
   if [[ -z "$last_lines" ]]; then
     echo "working"
@@ -137,10 +137,29 @@ detect_claude_state() {
     return
   fi
 
+  # Claude Code's interactive selection menu (AskUserQuestion)
+  if echo "$last_lines" | grep -qF 'Esc to cancel'; then
+    echo "waiting"
+    return
+  fi
+
+  # Claude Code's plan approval or selection arrow (❯ followed by digit)
+  if echo "$last_lines" | grep -qP '\x{276F}\s*\d'; then
+    echo "waiting"
+    return
+  fi
+
   # Permission prompt: Claude shows "Allow" / "Deny" choices or "Yes" / "No" on the same line
   # Be specific to avoid matching tool output that mentions these words in normal text
   if echo "$last_lines" | grep -qE '(Allow once|Allow always|Deny|Yes.*No.*\?)'; then
     echo "permission"
+    return
+  fi
+
+  # Claude Code actively streaming: spinner characters (✻✢✳✶⏺) in recent output
+  # Only match spinners in the last few lines to avoid matching historical output
+  if echo "$last_lines" | grep -qP '[\x{2720}-\x{2767}\x{23FA}]'; then
+    echo "working"
     return
   fi
 
@@ -173,15 +192,88 @@ detect_claude_state() {
   echo "working"
 }
 
+spin_json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"    # backslash must be first
+  s="${s//\"/\\\"}"    # double quote
+  s="${s//$'\n'/\\n}"  # newline
+  s="${s//$'\r'/\\r}"  # carriage return
+  s="${s//$'\t'/\\t}"  # tab
+  printf '%s' "$s"
+}
+
+spin_status_json() {
+  local sessions
+  sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SPIN_SESSION_PREFIX}" || true)
+
+  if [[ -z "$sessions" ]]; then
+    echo "[]"
+    return 0
+  fi
+
+  local first_session=true
+  printf '[\n'
+
+  while IFS= read -r session; do
+    # Get windows for this session
+    local windows
+    windows=$(tmux list-windows -t "$session" -F '#{window_name}:#{window_index}' 2>/dev/null)
+
+    while IFS=: read -r wname widx; do
+      # State — bare string, no icons or color codes
+      local state
+      state=$(detect_claude_state "$session" "$widx")
+
+      # PID of the Claude pane
+      local pane_pid
+      pane_pid=$(tmux list-panes -t "$session:$widx" -F '#{pane_pid}' 2>/dev/null | head -1)
+      pane_pid=$((pane_pid + 0))  # ensure numeric, 0 if empty
+
+      # Idle duration (raw poll count; 1 poll ≈ 20s)
+      local unchanged_polls
+      unchanged_polls=$(tmux show-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" 2>/dev/null | cut -d= -f2- || echo 0)
+      # Handle the case where tmux returns "-VARNAME" when the variable is unset
+      if [[ "$unchanged_polls" == -* ]]; then
+        unchanged_polls=0
+      fi
+      unchanged_polls=$((unchanged_polls + 0))  # ensure numeric
+
+      if $first_session; then
+        first_session=false
+      else
+        printf ',\n'
+      fi
+
+      printf '  {\n'
+      printf '    "name": "%s",\n' "$(spin_json_escape "$session")"
+      printf '    "window": "%s",\n' "$(spin_json_escape "$wname")"
+      printf '    "state": "%s",\n' "$(spin_json_escape "$state")"
+      printf '    "pid": %d,\n' "$pane_pid"
+      printf '    "idle_duration": %d\n' "$unchanged_polls"
+      printf '  }'
+    done <<< "$windows"
+
+  done <<< "$sessions"
+
+  printf '\n]\n'
+}
+
 spin_status() {
   local once=false
+  local json_output=false
 
   for arg in "$@"; do
     case "$arg" in
       --once) once=true ;;
+      --json) json_output=true ;;
       *) spin_die "unknown option: $arg" ;;
     esac
   done
+
+  if $json_output; then
+    spin_status_json
+    return
+  fi
 
   if $once; then
     spin_status_once

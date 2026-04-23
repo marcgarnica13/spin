@@ -23,8 +23,10 @@ Parallel [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session m
 ```bash
 git clone https://github.com/marcgarnica13/spin.git
 cd spin
-sudo make install
+make install
 ```
+
+This installs the `spin` CLI and the GNOME Shell extension files.
 
 ### One-liner
 
@@ -35,8 +37,47 @@ curl -fsSL https://raw.githubusercontent.com/marcgarnica13/spin/main/install.sh 
 ### Uninstall
 
 ```bash
-sudo make uninstall
+make uninstall
 ```
+
+## GNOME Extension Setup
+
+After running `make install`, the extension files are copied to
+`~/.local/share/gnome-shell/extensions/spin@gsd.local/` but the extension is not yet active.
+Follow these steps to enable it.
+
+### Step 1: Enable the extension
+
+#### Method 1: Command line (recommended)
+
+```bash
+gnome-extensions enable spin@gsd.local
+```
+
+#### Method 2: GNOME Extensions app (GUI)
+
+1. Open the **Extensions** application
+2. Find **Spin Session Indicator** in the list
+3. Toggle the switch to **ON**
+
+### Step 2: Restart GNOME Shell (recommended)
+
+For the icon to appear immediately, restart the shell:
+
+- Press `Alt+F2`, type `r`, and press `Enter`
+- Or log out and back in
+
+> The extension will appear automatically after your next login if you skip this step.
+
+### Verify
+
+Confirm the extension is active:
+
+```bash
+gnome-extensions list --enabled | grep spin@gsd.local
+```
+
+You should see `spin@gsd.local` in the output.
 
 ## Usage
 
