@@ -1,304 +1,280 @@
-# Domain Pitfalls: tmux Session Management
+# Domain Pitfalls: GNOME System Tray Indicator Extensions
 
-**Domain:** Terminal multiplexer-based CLI session monitoring
+**Domain:** GNOME Shell extension development with bash CLI integration
 **Researched:** 2026-03-31
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites or major bugs.
+Mistakes that cause rewrites or major issues.
 
-### Pitfall 1: Fragile Process Tree Inspection
+### Pitfall 1: Using Legacy Imports Instead of ESM
 
-**What goes wrong:**
-Attempting to detect Claude using `ps aux | grep claude` fails because:
-- `ps` output format varies across systems
-- grep matches its own process: `grep claude` appears in the process list
-- Commands with spaces or pipes get split incorrectly
-- Special characters in command lines break parsing
+**What goes wrong:** Extension fails to load silently in GNOME 45+, or crashes with cryptic error about undefined `imports`
 
-Example failure:
-```bash
-# WRONG - fragile
-if ps aux | grep claude | grep -v grep; then
-  # This catches false positives and breaks on special chars
-fi
-```
-
-**Why it happens:**
-Developers assume `ps` output is stable. It isn't. Also, shell variable expansion in grep patterns creates quoting nightmares.
+**Why it happens:** Copying code from old GNOME Shell extensions (pre-45) that used `imports.ui.main` instead of ESM `import` statements. The syntax is familiar to developers who skipped GNOME 45 migration docs.
 
 **Consequences:**
-- False positives/negatives when detecting if Claude is running
-- State detection incorrectly reports "exited" when Claude is still running
-- Dashboard shows wrong status, confusing users
+- Extension doesn't load at all, user sees "Extension unknown" in Settings
+- No error message in normal GNOME Shell logs
+- Requires full rebuild with correct imports to fix
+- Wasted 2-4 hours debugging non-obvious issue
 
 **Prevention:**
-Use `/proc/$pid/cmdline` directly instead of ps:
-```bash
-# CORRECT - reliable across all Linux variants
-local cmdline=$(cat "/proc/$pid/cmdline" 2>/dev/null | tr '\0' ' ' || true)
-if [[ "$cmdline" == *claude* ]]; then
-  # This is reliable and guaranteed format
-fi
-```
+- Use ESM `import` statements exclusively: `import * as Main from 'resource:///org/gnome/shell/ui/main.js'`
+- Never use `imports.ui` syntax
+- Reference GNOME 45 migration guide before writing any code
+- Set up linter (even basic) to flag `imports.` statements
 
 **Detection:**
-- Monitor: State detection incorrectly reports "exited" frequently
-- Test: Kill Claude manually, verify "exited" appears within 20s
+- Extension doesn't appear in `gnome-extensions list`
+- Test launch in `dbus-run-session gnome-shell` to get error output
 
-### Pitfall 2: Polling Overhead with 2s Interval
+### Pitfall 2: Blocking the Main Loop with Synchronous Subprocess Calls
 
-**What goes wrong:**
-At 2-second refresh interval:
-- 30 tmux commands executed per minute per session
-- Process tree walks (pgrep) run 30x per minute
-- Screen redraws 30x per minute, causing terminal flicker
-- Cumulative CPU load becomes noticeable with 5+ sessions
-- Battery drain on laptops increases substantially
+**What goes wrong:** GNOME Shell freezes for 100-500ms on each status poll, creating visible UI lag, particularly when `spin status` takes time (many sessions, slow system)
 
-**Why it happens:**
-2s feels "responsive" during development. At scale (multiple sessions), the cumulative overhead becomes significant.
+**Why it happens:** Using `proc.wait()` or `communicate_utf8()` (sync variant) instead of `communicate_utf8_async()`. Developers assume subprocess is "fast enough" or forget about GLib main loop thread model.
 
 **Consequences:**
-- High CPU usage visible in `top`
-- Terminal flicker distracting to user
-- Laptop fans spin up unnecessarily
-- Battery drain 5-10% per hour from monitoring alone
+- User experiences jank/lag when hovering over indicator
+- Panel becomes unresponsive for 100-500ms per poll
+- Looks like GNOME Shell is crashing; users may file bugs
+- 20-second polling becomes noticeable stuttering
 
 **Prevention:**
-Use 20-second refresh interval:
-- Reduces polling 10x
-- Still shows state changes within human perception timescale
-- 20s latency acceptable for a dashboard (not real-time alert)
-- CPU/battery impact becomes negligible
-
-**Mitigation:** If faster response needed, make refresh interval configurable: `spin status --interval 5`
+- Always use `Gio.Subprocess` (async-capable)
+- Always use `communicate_utf8_async()` with `Gio._promisify()` and async/await
+- Never call `wait()` or sync variants
+- Test with many sessions (50+) to expose lag
+- Profile with `perfetto` or `perf` if unsure
 
 **Detection:**
-- Monitor: Check CPU usage with `top -p $(pgrep -f "spin status")`
-- Test: Run 5 sessions for 5 minutes at 2s vs 20s, compare CPU metrics
+- `journalctl -f` shows 100+ ms gaps between main loop iterations
+- Clicking indicator visibly delays menu appearance
+- Scrolling desktop becomes sluggish during poll time
 
-### Pitfall 3: Hardcoded Prompt Patterns
+### Pitfall 3: Not Removing GLib Timeouts in disable()
 
-**What goes wrong:**
-Current implementation matches Claude's prompt with pattern `^\s*>\s*$`.
+**What goes wrong:** Timeouts keep firing after extension disables, causing memory leaks, stale subprocess calls, and eventual GNOME Shell crash
 
-If Claude changes prompt format:
-- From: `>`
-- To: `claude>` or `>>` or `(input):`
-- Pattern no longer matches
-- All sessions show "working" instead of "waiting"
-- Users can't tell if Claude is waiting for input
-
-**Why it happens:**
-Prompt format is application-specific. Claude owns this, not spin.
+**Why it happens:** Forgetting to store the timeout ID or calling `GLib.source_remove()` in `disable()`. Easy to miss in small extensions; GNOME review guidelines are strict about this.
 
 **Consequences:**
-- After Claude updates, spin breaks with no error message
-- Users perceive spin as unreliable
-- Requires manual code update to fix pattern
+- Disabling extension doesn't actually stop the polling
+- Subprocess calls accumulate in memory
+- After several enable/disable cycles, GNOME Shell becomes unstable
+- User has to restart GNOME Shell to recover
+- Extension gets rejected from GNOME extensions marketplace (if submitted)
 
 **Prevention:**
-1. **Monitor Claude release notes** for prompt format changes
-2. **Document pattern dependency** clearly in code comments
-3. **Add pattern test cases** that validate against actual Claude output
-4. **Consider alternative detection** if available (e.g., Claude API events instead of terminal parsing)
+- Store all GLib timeout IDs: `this._pollId = GLib.timeout_add_seconds(...)`
+- In `disable()`, always call `GLib.source_remove(this._pollId)` and null the ID
+- Use a cleanup checklist: UI elements, signal handlers, timers, file watches
+- Test enable/disable cycle 10+ times before shipping
 
 **Detection:**
-```bash
-# Add to test suite
-test_waiting_state() {
-  # Capture actual Claude output, verify pattern matches
-  local sample="
-  Working on task...
-  >"  # This is actual Claude prompt
-  
-  if echo "$sample" | grep -qE '^\s*>\s*$'; then
-    echo "PASS: waiting pattern recognized"
-  else
-    echo "FAIL: waiting pattern not recognized"
-  fi
-}
-```
+- `dbus-run-session gnome-shell --debug` and disable/enable extension in Extension Manager
+- Watch `top` or `htop`; memory keeps growing after each disable/enable
+- `ps aux | grep spin` shows subprocess accumulating after disabling extension
 
-### Pitfall 4: Assuming Single Pane Per Session
+### Pitfall 4: Hardcoding Assumptions About Session State JSON Structure
 
-**What goes wrong:**
-If code assumes "one tmux window = one Claude process", but users have:
-- Multiple windows in one session
-- Multiple panes per window
-- Detached panes
-- Custom tmux layouts
+**What goes wrong:** Bash `--json` output changes slightly (add a field, rename key), and extension crashes with `undefined` errors or silently fails
 
-State detection only checks first pane, missing status of others.
-
-**Why it happens:**
-Simple cases work with single pane; complexity grows incrementally.
+**Why it happens:** Extension assumes fixed JSON structure but doesn't validate it. If `spin status` evolution adds optional fields or changes key names, extension is fragile.
 
 **Consequences:**
-- Only first window status shown
-- Other windows' Claude instances invisible in dashboard
-- Users miss permission prompts or completed work
+- Extension breaks without warning when bash CLI updates
+- Silent failure mode: menu just disappears
+- Requires coordinated version bump to fix
+- Discourages future improvements to `spin status` output
 
 **Prevention:**
-Current implementation already handles this correctly:
-- Iterates through all windows: `tmux list-windows -t session`
-- Iterates through all panes per window (currently pane 0 only)
-- Checks each separately: `detect_claude_state session window_idx`
-
-**Note:** Current code checks `pane_index 0` only. If future versions support split panes with Claude in pane 1+, this will need update.
-
-### Pitfall 5: Terminal Capture Timing Race Condition
-
-**What goes wrong:**
-Between the time we check "Claude is running" and capture pane content, Claude could:
-- Exit suddenly
-- Produce output
-- Clear the screen
-- Create race condition where captured content doesn't match actual state
-
-Example:
-1. `pgrep -P $pane_pid` returns "claude running"
-2. Claude exits
-3. `tmux capture-pane -p` returns empty or old content
-4. State detection confused
-
-**Why it happens:**
-Two separate system calls with a gap in between = race window.
-
-**Consequences:**
-- Occasional state flaps (working → waiting → working)
-- Inconsistent dashboard display
-- Hard to reproduce/debug
-
-**Prevention:**
-1. **Accept small race window as acceptable** — at 20s interval, 10ms race is negligible
-2. **Handle empty content gracefully** — treat as "working" (safe default)
-3. **Use timeout guards** — tmux commands should have short timeouts
+- Define JSON schema in comments: `// [{name: string, state: 'working'|'waiting'|'idle'|'exited', pid: number}]`
+- Validate structure: `if (!Array.isArray(status)) throw new Error(...)`
+- Use optional chaining: `session?.name ?? 'Unknown'`
+- Document contract between extension and bash CLI (this file)
+- Version the JSON output: `{version: 1, sessions: [...]}`
 
 **Detection:**
-- Rare issue; hard to trigger deliberately
-- Monitor logs for frequent state changes on same session
-- If state flaps 10+ times per refresh cycle, investigate
+- JSON parsing throws `TypeError: Cannot read property 'name' of undefined`
+- Menu renders empty or partial
+- Subprocess output doesn't match expected keys
 
-**Mitigation (current code):**
-```bash
-local pane_content
-pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -10 2>/dev/null || true)
+### Pitfall 5: Not Handling JSON Parse Errors
 
-if [[ -z "$pane_content" ]]; then
-  echo "working"  # Safe default if empty
-  return
-fi
-```
+**What goes wrong:** If `spin status` fails or returns malformed JSON, extension silently crashes and menu disappears
 
----
+**Why it happens:** Wrapping subprocess call in try/catch for file I/O, but not for `JSON.parse()`. Or catching errors but not logging them, so user has no idea what happened.
+
+**Consequences:**
+- User clicks indicator, menu doesn't appear, no error message
+- Impossible to debug without looking at logs
+- User thinks extension is broken
+- Bash changes or edge cases cause silent failures
+
+**Prevention:**
+- Wrap `JSON.parse()` in try/catch explicitly
+- Log errors to console.error with context: `console.error('Failed to parse status JSON:', error)`
+- Show fallback UI: "Unable to load sessions" instead of empty menu
+- Test with intentionally malformed subprocess output
+
+**Detection:**
+- `journalctl /usr/bin/gnome-shell` shows parse errors
+- Menu clicks have no effect, no UI feedback
+- `dbus-run-session` development environment shows errors in terminal
 
 ## Moderate Pitfalls
 
-Issues that cause bugs, not rewrites.
+### Pitfall 6: Subprocess `spin connect` Not Running in Background
 
-### Pitfall 1: Ghostty Window Lifecycle Edge Cases
+**What goes wrong:** Extension waits for `spin connect` to complete before closing menu, blocking UI for 2+ seconds
 
-**What goes wrong:**
-When spawning Ghostty with `ghostty -e tmux attach -t $session`:
-- Ghostty window could fail to open
-- Session might already be attached from elsewhere
-- Multiple users attaching same session
-- Ghostty process dies but tmux session persists (orphaned)
+**Why it happens:** Using `communicate_utf8_async()` without `.fire_and_forget()`, or not understanding that waiting for subprocess is unnecessary
 
-**Prevention:**
-- Validate session exists before attach: `tmux has-session -t $session`
-- Handle Ghostty launch failures gracefully
-- Document behavior with multiple clients
-
-### Pitfall 2: Empty Pane Content After Session Launch
-
-**What goes wrong:**
-Immediately after launching `spin claude`, status check might show empty pane (no content yet).
-State detection returns "working" (safe default).
-Correct behavior, but confusing to users who expect immediate state.
+**Consequences:**
+- Menu lingers open for 2+ seconds after click
+- User can't interact with panel while Ghostty launches
+- Feels unresponsive compared to native applications
 
 **Prevention:**
-- Add delay in status check when showing newly-launched sessions
-- Or accept that newly-launched sessions show "working" for a few seconds
+- Don't wait for `spin connect` subprocess to complete
+- Fire subprocess and let it run: `Gio.Subprocess.new(['spin', 'connect', name], ...); // no await`
+- Only wait for `spin status --json` (need the output)
+- Test: measure time from click to menu close; should be <50ms
 
-### Pitfall 3: ANSI Color Codes in Pane Content
+**Detection:**
+- Menu stays open noticeably after clicking session
+- Ghostty window appears 2+ seconds later
+- `htop` shows spin process lingering after menu close
 
-**What goes wrong:**
-Claude or system output includes ANSI escape sequences (colors, formatting):
-- Grep patterns might not match due to hidden escape codes
-- Example: `>\e[0m` (prompt with color reset) vs `>`
-- Pattern matching assumes plain text
+### Pitfall 7: Icon Color Not Updating When Sessions Change
+
+**What goes wrong:** Icon color sticks at green even though a session is now waiting for input; user has stale state
+
+**Why it happens:** Calling `statusIcon.update(state)` but not triggering icon redraw, or caching color in extension instead of recomputing from status
+
+**Consequences:**
+- Visual indicator becomes unreliable
+- User misses the fact that a session needs attention
+- Defeats primary value of indicator (at-a-glance state)
+- User reverts to running `spin status` in terminal
 
 **Prevention:**
-Strip ANSI codes before pattern matching:
-```bash
-# Use -v option in grep or pipe through sed
-sed 's/\x1b\[[0-9;]*m//g'  # Remove ANSI color codes
-```
+- Recompute icon color on every poll: don't cache
+- Call `this._icon.set_style_class_name()` or `set_property()` to force redraw
+- Test: start session in idle, run something, verify icon changes within 20s
+- Test: kill a session, verify color updates
 
-Current code doesn't do this explicitly; pattern matching is permissive enough to work.
+**Detection:**
+- Icon color doesn't match actual session state
+- Running `spin status` shows different state than icon suggests
+- Refreshing manually (disable/enable extension) fixes color
 
----
+### Pitfall 8: Menu Items Piling Up Instead of Being Replaced
+
+**What goes wrong:** Clicking menu repeatedly creates duplicate items; old items not removed; menu grows unbounded
+
+**Why it happens:** Calling `menu.addMenuItem()` without `menu.removeAll()` first, or using wrong method name for clearing
+
+**Consequences:**
+- Menu gets longer every poll
+- Duplicate sessions appear in list
+- Memory leaks; old PopupMenuItem objects not garbage collected
+- Menu becomes unusable with 100+ duplicate items
+
+**Prevention:**
+- Always call `this.menu.removeAll()` before rebuilding menu
+- Use `menu.addMenuItem()` for adding, not array concatenation
+- Test: enable/disable extension 10 times; verify menu item count stays constant
+
+**Detection:**
+- Menu items duplicate on every poll
+- Running `dbus-run-session gnome-shell` shows items piling up visually
+- Menu has 2x or 10x more items than actual sessions
+
+### Pitfall 9: Not Handling Zero Sessions (Empty State)
+
+**What goes wrong:** Menu appears blank when no sessions are running; user has no feedback
+
+**Why it happens:** Code assumes there's always at least one session. When `spin status --json` returns `[]`, menu is empty and user sees nothing
+
+**Consequences:**
+- Confusing UX: icon appears, menu opens, nothing inside
+- User thinks extension is broken
+- No indication that having no sessions is valid state
+
+**Prevention:**
+- Explicitly handle empty session list: `if (status.length === 0) { menu.addMenuItem(...'No sessions'); return; }`
+- Show indicator only when sessions exist: `icon.visible = status.length > 0`
+- Test: run `spin status` when no sessions are active; verify menu shows placeholder
+
+**Detection:**
+- Menu opens but appears empty
+- Icon lingers even when all sessions are killed
 
 ## Minor Pitfalls
 
-Issues that cause inconvenience, not breakage.
+### Pitfall 10: Not Parsing Colors Correctly in State Mapping
 
-### Pitfall 1: Tmux Session Name Collisions
+**What goes wrong:** Icon displays wrong color because state enum doesn't match bash output
 
-If two projects have same basename (both named "project"), spin-project conflicts.
+**Why it happens:** Bash returns `state: 'working'`, extension checks `if (state === 'WORKING')`, color never matches
 
-**Prevention:** Use full path hash: `spin-$(pwd | md5sum | cut -c1-8)` instead of directory name
+**Consequences:**
+- Icon always shows default color, rendering state visualization useless
+- User has to open menu to understand state
 
-### Pitfall 2: Stale Environment Variables
+**Prevention:**
+- Match case and values exactly: bash returns lowercase, extension checks lowercase
+- Define state enum: `const StateColor = {working: 'yellow', waiting: 'red', idle: 'green'}`
+- Test with all possible states from bash CLI
 
-If session metadata (SPIN_CWD) becomes stale or wrong, later status displays incorrect paths.
+**Detection:**
+- Icon color is always the same regardless of session state
+- Menu shows correct states, but icon color is wrong
 
-**Prevention:** Update environment on each `spin claude` call; validate paths exist
+### Pitfall 11: Memory Leak from Unclosed File Handles
 
-### Pitfall 3: User Kills Session While Status Running
+**What goes wrong:** Extension opens files (if caching status to disk) but doesn't close them; file descriptors leak
 
-If user manually `tmux kill-session` while `spin status` is running:
-- Status continues running
-- Shows "No active sessions" after next refresh
-- Graceful behavior, but worth noting
+**Why it happens:** Using `Gio.File.read()` without properly closing the stream, or not using try/finally
 
-**Prevention:** None needed; current behavior is correct
+**Consequences:**
+- Extension accumulates open file descriptors
+- After many enable/disable cycles, system runs out of fds
+- GNOME Shell can't open new files
 
----
+**Prevention:**
+- Use `Gio.File.replace()` with cleanup: `await file.replace_async()` closes automatically
+- Use try/finally to ensure streams close
+- Test with `lsof` to verify no stale file descriptors
+
+**Detection:**
+- `lsof | grep gnome-shell` shows increasing open files
+- GNOME Shell starts failing to open windows ("too many open files")
 
 ## Phase-Specific Warnings
 
-| Phase | Topic | Likely Pitfall | Mitigation |
-|-------|-------|----------------|------------|
-| Phase 1 (20s interval) | Polling overhead | Users complain about responsiveness | Measure CPU before/after; confirm 20s acceptable |
-| Phase 2 (spin connect) | Window lifecycle | Ghostty attachment edge cases | Test with sessions already attached from other terminals |
-| Phase 3 (idle detection) | Time tracking | Timestamp skew or clock changes | Store timestamps in UTC; handle system clock adjustments |
-| Future (remote) | SSH sessions | Credential/forwarding complexity | Large scope; defer until proven necessary |
-
----
-
-## Testing Checklist for Pitfall Prevention
-
-- [ ] **Prompt pattern:** Capture actual Claude output, test pattern matching
-- [ ] **Process detection:** Kill Claude manually, verify "exited" within 20s
-- [ ] **Polling overhead:** Run 5+ sessions, measure CPU at 2s and 20s intervals
-- [ ] **Race conditions:** Rapid session launch/exit, verify no state flaps
-- [ ] **Empty content:** Status check immediately after session launch
-- [ ] **ANSI codes:** Test with Claude output containing color codes
-- [ ] **Ghostty attachment:** Attach same session from multiple terminals simultaneously
-- [ ] **Stale metadata:** Change directory, restart session, verify path updates
-
----
+| Phase Topic | Likely Pitfall | Mitigation |
+|-------------|---------------|------------|
+| Phase 1: `spin status --json` implementation | Incomplete JSON structure (missing fields) | Document schema in bash and extension; test both together |
+| Phase 2: Extension scaffolding | Using old GNOME Shell code as template | Reference GNOME 50 guide, not Stack Overflow from 2020 |
+| Phase 3: Polling implementation | Blocking main loop on subprocess wait | Profile with `dbus-run-session`; use async/await |
+| Phase 4: Menu rendering | Menu items accumulating instead of clearing | Call `removeAll()` before rebuilding |
+| Phase 5: Click handler | `spin connect` waiting blocks UI | Don't await subprocess; fire and forget |
+| Phase 6: Installation | Extension installed but not enabled by default | Document `gnome-extensions enable` step |
+| Phase 7: Settings schema (if implemented) | GSettings not persisted across restarts | Verify dconf backend working; test enable/disable cycles |
 
 ## Sources
 
-- Current implementation: `lib/spin-status.sh` demonstrates correct patterns
-- Process inspection guide: Direct `/proc/$pid/cmdline` usage (not ps parsing)
-- tmux best practices: Avoid assumptions about session/pane structure
-- Linux standards: POSIX-like /proc filesystem availability assumption
+- [GNOME Shell Extensions Review Guidelines](https://gjs.guide/extensions/review-guidelines/review-guidelines.html) — Cleanup, resource management expectations
+- [GNOME 45 Extension Migration Guide](https://gjs.guide/extensions/upgrading/gnome-shell-45.html) — ESM pitfalls, breaking changes
+- [GNOME JavaScript: Async Programming](https://gjs.guide/guides/gjs/asynchronous-programming.html) — Main loop blocking, GLib patterns
+- [GNOME JavaScript: Subprocess Execution](https://gjs.guide/guides/gio/subprocesses.html) — Async subprocess patterns
+- Real-world extension reviews on [extensions.gnome.org](https://extensions.gnome.org/) — Common rejection reasons
 
-*Pitfall research for: tmux-based session manager*
+---
+
+*Pitfall research for: GNOME system tray indicator*
 *Researched: 2026-03-31*

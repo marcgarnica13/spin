@@ -91,6 +91,13 @@ None.
 
 None - no external service configuration required.
 
+## Self-Check: PASSED
+
+- FOUND: gnome-extension/extension.js (modified with open-menu guard + removeAll)
+- FOUND: .planning/phases/06-session-dropdown/06-session-dropdown-02-SUMMARY.md
+- FOUND: commit ae2e426 (feat: open-menu guard and disable cleanup)
+- FOUND: commit 8037fa1 (docs: plan metadata)
+
 ## Next Phase Readiness
 
 - Phase 6 complete: full GNOME Shell extension with tray icon + clickable dropdown + auto-refresh
