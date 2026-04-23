@@ -1,3 +1,4 @@
+import GObject from 'gi://GObject';
 import St from 'gi://St';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -10,6 +11,7 @@ import { Extension } from 'resource:///org/gnome/shell/extensions/extension.js';
 // PanelMenu.Button subclass that owns the tray icon lifecycle.
 // enable() adds it to the panel; disable() removes it and cleans up all resources.
 
+const SpinIndicator = GObject.registerClass(
 class SpinIndicator extends PanelMenu.Button {
   constructor() {
     super(0.0, 'Spin Indicator');
@@ -37,7 +39,7 @@ class SpinIndicator extends PanelMenu.Button {
     this._refreshState();
     this._timeoutId = GLib.timeout_add_seconds(
       GLib.PRIORITY_DEFAULT,
-      20,
+      5,
       () => {
         this._refreshState();
         return GLib.SOURCE_CONTINUE;
@@ -102,21 +104,20 @@ class SpinIndicator extends PanelMenu.Button {
   }
 
   _aggregateState(sessions) {
-    // Priority: error (red) > waiting (yellow) > working > idle
+    // Priority: attention (yellow) > working (red) > idle (blank)
     let result = 'idle';
 
     for (const session of sessions) {
       const state = session.state;
 
-      if (state === 'permission' || state === 'exited') {
-        return 'error'; // Highest priority — stop checking immediately
+      if (state === 'permission' || state === 'waiting') {
+        return 'attention'; // Highest priority — needs user input
       }
 
-      if (state === 'waiting') {
-        result = 'waiting';
-      } else if (state === 'working' && result === 'idle') {
+      if (state === 'working' && result === 'idle') {
         result = 'working';
       }
+      // exited maps to idle — nothing actionable
     }
 
     return result;
@@ -124,10 +125,9 @@ class SpinIndicator extends PanelMenu.Button {
 
   _stateToIconName(aggregateState) {
     const iconMap = {
-      'error':   'dialog-error-symbolic',    // red   — permission or exited
-      'waiting': 'dialog-warning-symbolic',  // amber — awaiting user input
-      'working': 'spinner',                  // active — Claude running
-      'idle':    'dialog-information-symbolic', // grey — no activity
+      'attention': 'dialog-warning-symbolic',     // yellow — needs user input
+      'working':   'dialog-error-symbolic',        // red    — Claude running
+      'idle':      'dialog-information-symbolic',   // blank  — nothing happening
     };
     return iconMap[aggregateState] || 'dialog-information-symbolic';
   }
@@ -152,11 +152,11 @@ class SpinIndicator extends PanelMenu.Button {
 
   _stateToIconSymbol(state) {
     const symbolMap = {
-      'working':    '\u25CF', // ● filled circle (active)
+      'working':    '\u25CF', // ● filled circle (Claude running)
       'waiting':    '\u25C9', // ◉ fisheye (awaiting input)
-      'idle':       '\u25CC', // ◌ dotted circle (no activity)
-      'exited':     '\u25CB', // ○ open circle (exited)
-      'permission': '\u25CB', // ○ open circle (needs permission)
+      'permission': '\u25C9', // ◉ fisheye (needs permission)
+      'idle':       '\u25CB', // ○ open circle (no activity)
+      'exited':     '\u25CB', // ○ open circle (finished)
     };
     return symbolMap[state] || '\u25CB';
   }
@@ -175,9 +175,9 @@ class SpinIndicator extends PanelMenu.Button {
         const label = `${win.window}  ${symbol}`;
         const windowItem = new PopupMenu.PopupMenuItem(label);
 
-        // Capture sessionName by value via arrow function (avoids loop-closure bug)
+        // Capture sessionName/windowName by value via arrow function (avoids loop-closure bug)
         windowItem.connect('activate', () => {
-          this._connectToSession(sessionName);
+          this._connectToSession(sessionName, win.window);
         });
 
         sessionItem.menu.addMenuItem(windowItem);
@@ -187,7 +187,7 @@ class SpinIndicator extends PanelMenu.Button {
     }
   }
 
-  _connectToSession(sessionName) {
+  _connectToSession(sessionName, windowName) {
     const launcher = new Gio.SubprocessLauncher({
       flags: Gio.SubprocessFlags.NONE,
     });
@@ -196,8 +196,12 @@ class SpinIndicator extends PanelMenu.Button {
     launcher.setenv('DISPLAY', display, true);
 
     try {
-      launcher.spawnv([this._spinPath, 'connect', sessionName]);
-      log(`[spin-indicator] Connected to session: ${sessionName}`);
+      const args = [this._spinPath, 'connect', sessionName];
+      if (windowName) {
+        args.push(windowName);
+      }
+      launcher.spawnv(args);
+      log(`[spin-indicator] Connected to session: ${sessionName} window: ${windowName || '(default)'}`);
     } catch (e) {
       logError(e, `[spin-indicator] Failed to connect to session: ${sessionName}`);
     }
@@ -213,7 +217,7 @@ class SpinIndicator extends PanelMenu.Button {
   _hideIndicator() {
     this.visible = false;
   }
-}
+});
 
 // ── Extension lifecycle ────────────────────────────────────────────────────────
 export default class SpinExtension extends Extension {
