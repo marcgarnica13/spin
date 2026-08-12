@@ -2,7 +2,16 @@
 # spin-claude.sh — launch parallel Claude Code sessions in tmux
 
 spin_claude() {
-  local names=("$@")
+  local remote=true
+  local args=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--no-remote" ]]; then
+      remote=false
+    else
+      args+=("$arg")
+    fi
+  done
+  local names=("${args[@]}")
 
   [[ ${#names[@]} -eq 0 ]] && spin_die "no window names provided"
 
@@ -49,7 +58,9 @@ spin_claude() {
     else
       tmux new-window -t "$session" -n "$name"
     fi
-    tmux send-keys -t "$session:$name" "claude --dangerously-skip-permissions --worktree $name" Enter
+    local claude_cmd="claude --dangerously-skip-permissions --worktree $name"
+    $remote && claude_cmd+=" --remote-control $name"
+    tmux send-keys -t "$session:$name" "$claude_cmd" Enter
     echo "Started window '$name'"
   done
 
