@@ -22,7 +22,9 @@ usage() {
 ${BOLD}spin${RESET} v${SPIN_VERSION} — parallel Claude Code session manager
 
 ${BOLD}USAGE${RESET}
-  spin claude <name1> [name2] ...    Launch Claude sessions in tmux worktrees
+  spin claude [--no-remote] <name1> [name2] ...
+                                      Launch Claude sessions in tmux worktrees
+                                      (Remote Control enabled by default, named after each window)
   spin status [--once]               Monitor active spin sessions
   spin connect [session]             Reconnect to an existing session
 
