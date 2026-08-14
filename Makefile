@@ -12,6 +12,9 @@ install-cli:
 	@cp bin/spin $(PREFIX)/bin/spin
 	@chmod +x $(PREFIX)/bin/spin
 	@cp lib/*.sh $(PREFIX)/lib/spin/
+	@cp libexec/spin-hook.sh $(PREFIX)/lib/spin/spin-hook.sh
+	@chmod +x $(PREFIX)/lib/spin/spin-hook.sh
+	@cp libexec/hooks-settings.json.tmpl $(PREFIX)/lib/spin/hooks-settings.json.tmpl
 	@echo "spin CLI installed to $(PREFIX)/bin/spin"
 
 install-extension:
