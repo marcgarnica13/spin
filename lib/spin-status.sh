@@ -113,7 +113,25 @@ detect_claude_state() {
     fi
   fi
 
-  # Step 2: Capture pane content and analyze last visible lines
+  # Step 2: State file (hook-written ground truth) takes priority. Only
+  # fall back to pane-scraping when it's absent or empty (e.g. a session
+  # launched by an older spin, or the hook hasn't fired yet).
+  local window_name
+  window_name=$(tmux display-message -t "$session:$widx" -p '#{window_name}' 2>/dev/null || true)
+  if [[ -n "$window_name" ]]; then
+    local stripped_name state_file file_state
+    stripped_name=$(spin_strip_icon "$window_name")
+    state_file=$(spin_state_file "$session" "$stripped_name")
+    if [[ -f "$state_file" ]]; then
+      file_state=$(spin_json_field "$state_file" "state")
+      if [[ -n "$file_state" ]]; then
+        echo "$file_state"
+        return
+      fi
+    fi
+  fi
+
+  # Step 3: Capture pane content and analyze last visible lines
   local pane_content
   pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -10 2>/dev/null || true)
 
@@ -163,33 +181,35 @@ detect_claude_state() {
     return
   fi
 
-  # Idle detection: compare pane content hash across polls (D-01, D-02, D-03)
-  # State is persisted in tmux environment per session:window to survive across CLI invocations
-  local content_hash
-  content_hash=$(echo "$pane_content" | md5sum | cut -d' ' -f1)
-
-  local last_hash
-  last_hash=$(tmux show-environment -t "$session" "SPIN_LAST_CONTENT_${session}_${widx}" 2>/dev/null | cut -d= -f2- || true)
-
-  local unchanged_polls
-  unchanged_polls=$(tmux show-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" 2>/dev/null | cut -d= -f2- || echo 0)
-
-  if [[ "$content_hash" != "$last_hash" ]]; then
-    unchanged_polls=0
-  else
-    unchanged_polls=$((unchanged_polls + 1))
-  fi
-
-  tmux set-environment -t "$session" "SPIN_LAST_CONTENT_${session}_${widx}" "$content_hash"
-  tmux set-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" "$unchanged_polls"
-
-  # Threshold: 3 consecutive polls with unchanged content = ~60s at 20s interval (D-04, D-05)
-  if [[ $unchanged_polls -ge 3 ]]; then
-    echo "idle"
-    return
-  fi
-
+  # No pane-scraping pattern matched and no state file data was available —
+  # default to working (same default used when pane content is empty).
   echo "working"
+}
+
+# spin_cleanup_stale_state <session> — removes state files for windows that
+# no longer exist in the given tmux session (e.g. a window was closed).
+# Not yet wired into any caller.
+spin_cleanup_stale_state() {
+  local session="$1"
+  local dir
+  dir="$(spin_state_dir)/$session"
+  [[ -d "$dir" ]] || return 0
+
+  local -A live
+  local wname
+  while IFS= read -r wname; do
+    [[ -z "$wname" ]] && continue
+    live["$(spin_strip_icon "$wname")"]=1
+  done < <(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null || true)
+
+  local file base
+  for file in "$dir"/*.json; do
+    [[ -e "$file" ]] || continue
+    base="$(basename "$file" .json)"
+    if [[ -z "${live[$base]+x}" ]]; then
+      rm -f "$file"
+    fi
+  done
 }
 
 spin_json_escape() {
@@ -229,14 +249,23 @@ spin_status_json() {
       pane_pid=$(tmux list-panes -t "$session:$widx" -F '#{pane_pid}' 2>/dev/null | head -1)
       pane_pid=$((pane_pid + 0))  # ensure numeric, 0 if empty
 
-      # Idle duration (raw poll count; 1 poll ≈ 20s)
-      local unchanged_polls
-      unchanged_polls=$(tmux show-environment -t "$session" "SPIN_IDLE_POLLS_${session}_${widx}" 2>/dev/null | cut -d= -f2- || echo 0)
-      # Handle the case where tmux returns "-VARNAME" when the variable is unset
-      if [[ "$unchanged_polls" == -* ]]; then
-        unchanged_polls=0
+      # since / last_message from the hook-written state file, when present
+      local now
+      now=$(date +%s)
+      local stripped_wname state_file
+      stripped_wname=$(spin_strip_icon "$wname")
+      state_file=$(spin_state_file "$session" "$stripped_wname")
+
+      local since last_message
+      since="$now"
+      last_message=""
+      if [[ -f "$state_file" ]]; then
+        local file_since
+        file_since=$(spin_json_field "$state_file" "since")
+        [[ -n "$file_since" ]] && since="$file_since"
+        last_message=$(spin_json_field "$state_file" "last_message")
       fi
-      unchanged_polls=$((unchanged_polls + 0))  # ensure numeric
+      local elapsed_seconds=$(( now - since ))
 
       if $first_session; then
         first_session=false
@@ -249,7 +278,9 @@ spin_status_json() {
       printf '    "window": "%s",\n' "$(spin_json_escape "$wname")"
       printf '    "state": "%s",\n' "$(spin_json_escape "$state")"
       printf '    "pid": %d,\n' "$pane_pid"
-      printf '    "idle_duration": %d\n' "$unchanged_polls"
+      printf '    "since": %d,\n' "$since"
+      printf '    "elapsed_seconds": %d,\n' "$elapsed_seconds"
+      printf '    "last_message": "%s"\n' "$(spin_json_escape "$last_message")"
       printf '  }'
     done <<< "$windows"
 

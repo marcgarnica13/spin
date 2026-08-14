@@ -17,7 +17,7 @@ spin_status_daemon() {
 
       # Strip any existing icon prefix (● ◉ ○ followed by space)
       local base_name
-      base_name=$(echo "$current_name" | sed 's/^[●◉○] //')
+      base_name=$(spin_strip_icon "$current_name")
 
       local new_name="$icon $base_name"
       if [[ "$new_name" != "$current_name" ]]; then

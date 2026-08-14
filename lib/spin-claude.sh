@@ -80,7 +80,7 @@ spin_claude() {
       [[ -z "$existing_name" ]] && continue
       # Strip any leading status-icon prefix the daemon may have injected.
       # Icons come from ICON_* in spin-common.sh: ● ◉ ○ ◌
-      base=$(echo "$existing_name" | sed 's/^[●◉○◌] //')
+      base=$(spin_strip_icon "$existing_name")
       for name in "${names[@]}"; do
         if [[ "$name" == "$base" ]]; then
           spin_die "window '$name' already exists in session '$session'"
