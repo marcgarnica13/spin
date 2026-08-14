@@ -76,6 +76,23 @@ spin_json_field() {
   printf '%s' "$value"
 }
 
+# spin_humanize_duration <seconds> — echoes a compact human-readable
+# elapsed-time string: "42s" under a minute, "5m" under an hour, else
+# "2h13m". Negative input is clamped to 0. Pure arithmetic, no external
+# calls.
+spin_humanize_duration() {
+  local seconds="${1:-0}"
+  [[ "$seconds" -lt 0 ]] && seconds=0
+
+  if [[ "$seconds" -lt 60 ]]; then
+    printf '%ds' "$seconds"
+  elif [[ "$seconds" -lt 3600 ]]; then
+    printf '%dm' "$(( seconds / 60 ))"
+  else
+    printf '%dh%dm' "$(( seconds / 3600 ))" "$(( (seconds % 3600) / 60 ))"
+  fi
+}
+
 spin_die() {
   echo "${RED}error:${RESET} $*" >&2
   exit 1

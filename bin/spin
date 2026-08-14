@@ -25,7 +25,7 @@ ${BOLD}USAGE${RESET}
   spin claude [--no-remote] <name1> [name2] ...
                                       Launch Claude sessions in tmux worktrees
                                       (Remote Control enabled by default, named after each window)
-  spin status [--once]               Monitor active spin sessions
+  spin status [--once] [--json]      Monitor active spin sessions (--json for machine-readable output, e.g. the GNOME extension)
   spin connect [session]             Reconnect to an existing session
 
 ${BOLD}OPTIONS${RESET}

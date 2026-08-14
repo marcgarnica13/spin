@@ -97,27 +97,31 @@ Creates a tmux session with three windows, each running Claude Code in its own `
 spin status
 ```
 
-Live-updating tree view of all active spin sessions:
+Attention-first dashboard: any window that's `waiting` for input or `needs permission` is surfaced up top in a `▌ NEEDS YOU` block, with how long it's been in that state and a snippet of Claude's last message -- so you know at a glance which sessions actually need you, before scanning the full tree below (which also shows elapsed time per window):
 
 ```
 spin status (refreshing every 20s -- press Ctrl-C to exit)
 
+ ▌ NEEDS YOU
+ ◉ spin-assistant:reviewer  waiting for input  4m  Looks good overall, one nit: the retry loop...
+
  spin-assistant  ~/Development/assistant
- ├─ planner    ● working
- ├─ reviewer   ◉ waiting for input
- └─ coder      ◌ idle
+ ├─ planner    ● working  1m
+ ├─ reviewer   ◉ waiting for input  4m
+ └─ coder      ◌ idle  12m
 
  spin-myproject  ~/Development/myproject
- ├─ api        ● working
- └─ tests      ○ exited
+ ├─ api        ● working  32s
+ └─ tests      ○ exited  8m
 
  ● working  ◉ needs input  ◉ needs permission  ◌ idle  ○ exited
 ```
 
-Use `--once` for a single snapshot:
+Use `--once` for a single snapshot, or `--json` for machine-readable output (used by the GNOME extension):
 
 ```bash
 spin status --once
+spin status --json
 ```
 
 ### Reconnect to sessions
@@ -131,7 +135,7 @@ spin connect myproject # attach to spin-myproject in a new Ghostty window
 
 `spin claude` creates a tmux session named `spin-<directory>` with one window per name. Each window has two panes: the left pane runs `claude --dangerously-skip-permissions --worktree <name>`, and the right pane is a shell in the project directory.
 
-`spin status` enumerates all `spin-*` tmux sessions, inspects each pane's process tree and terminal content to determine whether Claude is actively working, waiting for input, or has exited.
+`spin claude` also registers Claude Code lifecycle hooks (via `--settings`) that write a ground-truth state file per window whenever Claude actually finishes responding, needs a permission prompt answered, or exits -- turning state detection from guesswork into real events. `spin status` enumerates all `spin-*` tmux sessions and reads each window's state file first; it only falls back to inspecting the pane's process tree and terminal content when no hook data exists yet (e.g. a session launched by an older `spin` version, or the hook hasn't fired yet).
 
 ## Contributing
 

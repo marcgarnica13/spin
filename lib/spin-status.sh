@@ -10,6 +10,92 @@ spin_status_once() {
     return 0
   fi
 
+  local now
+  now=$(date +%s)
+
+  # Detection pass: call detect_claude_state exactly once per window, and
+  # cache state/since/last_message for reuse by both the NEEDS YOU block
+  # and the tree below.
+  local -A row_state row_since row_msg
+  local attention=()
+
+  while IFS= read -r session; do
+    spin_cleanup_stale_state "$session"
+
+    local windows
+    windows=$(tmux list-windows -t "$session" -F '#{window_name}:#{window_index}' 2>/dev/null)
+
+    while IFS=: read -r wname widx; do
+      [[ -z "$wname" ]] && continue
+      local key="$session:$widx"
+
+      local state
+      state=$(detect_claude_state "$session" "$widx")
+      row_state["$key"]="$state"
+
+      local stripped_wname state_file since msg
+      stripped_wname=$(spin_strip_icon "$wname")
+      state_file=$(spin_state_file "$session" "$stripped_wname")
+      since="$now"
+      msg=""
+      if [[ -f "$state_file" ]]; then
+        local file_since
+        file_since=$(spin_json_field "$state_file" "since")
+        [[ -n "$file_since" ]] && since="$file_since"
+        msg=$(spin_json_field "$state_file" "last_message")
+      fi
+      row_since["$key"]="$since"
+      row_msg["$key"]="$msg"
+
+      if [[ "$state" == "waiting" || "$state" == "permission" ]]; then
+        attention+=("$key|$session|$wname")
+      fi
+    done <<< "$windows"
+  done <<< "$sessions"
+
+  # NEEDS YOU pass: attention rows (waiting/permission) first, above the tree.
+  if [[ ${#attention[@]} -gt 0 ]]; then
+    echo " ${BOLD}▌ NEEDS YOU${RESET}"
+
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+    local avail=$(( cols - 30 ))
+    [[ $avail -lt 20 ]] && avail=20
+
+    local entry
+    for entry in "${attention[@]}"; do
+      local key ent_session rest ent_wname
+      key="${entry%%|*}"
+      rest="${entry#*|}"
+      ent_session="${rest%%|*}"
+      ent_wname="${rest#*|}"
+      ent_wname=$(spin_strip_icon "$ent_wname")
+
+      local state icon label
+      state="${row_state[$key]}"
+      if [[ "$state" == "permission" ]]; then
+        icon="$ICON_PERMISSION"
+        label="${RED}${BOLD}needs permission${RESET}"
+      else
+        icon="$ICON_WAITING"
+        label="${GREEN}${BOLD}waiting for input${RESET}"
+      fi
+
+      local elapsed
+      elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+
+      local msg="${row_msg[$key]}"
+      if [[ -n "$msg" ]]; then
+        printf ' %s %s:%s  %s  %s  %s%s%s\n' "$icon" "$ent_session" "$ent_wname" "$label" "$elapsed" "$DIM" "${msg:0:avail}" "$RESET"
+      else
+        printf ' %s %s:%s  %s  %s\n' "$icon" "$ent_session" "$ent_wname" "$label" "$elapsed"
+      fi
+    done
+
+    echo ""
+  fi
+
+  # Tree pass: same structure/output as before, but reuses cached state.
   local session_count=0
   while IFS= read -r session; do
     session_count=$((session_count + 1))
@@ -38,8 +124,8 @@ spin_status_once() {
       local connector="$TREE_BRANCH"
       [[ $current -eq $window_count ]] && connector="$TREE_LAST"
 
-      local state
-      state=$(detect_claude_state "$session" "$widx")
+      local key="$session:$widx"
+      local state="${row_state[$key]}"
 
       local icon label
       case "$state" in
@@ -65,7 +151,10 @@ spin_status_once() {
           ;;
       esac
 
-      printf " %s %-12s %s %s\n" "$connector" "$wname" "$icon" "$label"
+      local elapsed
+      elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+
+      printf " %s %-12s %s %s  %s%s%s\n" "$connector" "$wname" "$icon" "$label" "$DIM" "$elapsed" "$RESET"
     done <<< "$windows"
 
     echo ""
