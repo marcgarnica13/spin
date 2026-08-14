@@ -36,6 +36,19 @@ spin_connect() {
 
     # Attach to named session — CONN-03 / CONN-05 / D-08 / D-09
     if [[ -n "$window" ]]; then
+      # Window names in tmux carry the daemon's icon prefix (e.g. "● foo"),
+      # but callers (GNOME extension, users) pass the bare name. Resolve to
+      # the window index by comparing icon-stripped names; fall back to the
+      # raw value if no match (covers indexes and exact prefixed names).
+      local widx wline wn
+      widx=""
+      while IFS=: read -r wline wn; do
+        if [[ "$(spin_strip_icon "$wn")" == "$window" ]]; then
+          widx="$wline"
+          break
+        fi
+      done < <(tmux list-windows -t "$target" -F '#{window_index}:#{window_name}' 2>/dev/null)
+      [[ -n "$widx" ]] && window="$widx"
       tmux select-window -t "$target:$window" 2>/dev/null
       ghostty -e tmux attach -t "$target:$window" 2>/dev/null &
     else

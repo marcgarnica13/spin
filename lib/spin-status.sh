@@ -154,7 +154,9 @@ spin_status_once() {
       local elapsed
       elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
 
-      printf " %s %-12s %s %s  %s%s%s\n" "$connector" "$wname" "$icon" "$label" "$DIM" "$elapsed" "$RESET"
+      local display_wname
+      display_wname=$(spin_strip_icon "$wname")
+      printf " %s %-12s %s %s  %s%s%s\n" "$connector" "$display_wname" "$icon" "$label" "$DIM" "$elapsed" "$RESET"
     done <<< "$windows"
 
     echo ""
@@ -364,7 +366,7 @@ spin_status_json() {
 
       printf '  {\n'
       printf '    "name": "%s",\n' "$(spin_json_escape "$session")"
-      printf '    "window": "%s",\n' "$(spin_json_escape "$wname")"
+      printf '    "window": "%s",\n' "$(spin_json_escape "$stripped_wname")"
       printf '    "state": "%s",\n' "$(spin_json_escape "$state")"
       printf '    "pid": %d,\n' "$pane_pid"
       printf '    "since": %d,\n' "$since"
