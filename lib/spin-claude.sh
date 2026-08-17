@@ -43,6 +43,32 @@ spin_generate_hooks_settings() {
   echo "$settings_file"
 }
 
+# Palette for per-window prompt-bar colors, assigned round-robin by tmux
+# window index via Claude Code's /color slash command. Valid names per
+# Claude Code: red, blue, green, yellow, purple, orange, pink, cyan, default.
+SPIN_COLOR_PALETTE=(blue green purple orange cyan pink red yellow)
+
+# spin_watch_and_color <session> <window_index> <color> — waits for the
+# freshly-launched claude in the window to finish booting (the "bypass
+# permissions on" status line, same marker spin-remote keys on), then sends
+# "/color <color>" to give the session a distinct prompt-bar color. Runs as
+# a disowned background watcher; gives up silently after ~30s.
+spin_watch_and_color() {
+  local session="$1"
+  local widx="$2"
+  local color="$3"
+  local _i
+  for _i in $(seq 1 30); do
+    if tmux capture-pane -p -t "$session:$widx" 2>/dev/null | grep -qF "bypass permissions on"; then
+      sleep 1
+      tmux send-keys -t "$session:$widx" "/color $color" Enter 2>/dev/null || true
+      return 0
+    fi
+    sleep 1
+  done
+  return 0
+}
+
 spin_claude() {
   local remote=true
   local args=()
@@ -111,6 +137,17 @@ spin_claude() {
     [[ -n "$hooks_settings" ]] && claude_cmd+=" --settings $hooks_settings"
     tmux send-keys -t "$session:$name" "$claude_cmd" Enter
     echo "Started window '$name'"
+
+    # Assign a distinct prompt-bar color per window (round-robin by window
+    # index). Grab the index now, before the status daemon icon-prefixes
+    # the window name and makes name-targeting unreliable.
+    local widx color
+    widx=$(tmux display-message -t "$session:$name" -p '#{window_index}' 2>/dev/null || true)
+    if [[ -n "$widx" ]]; then
+      color="${SPIN_COLOR_PALETTE[$(( widx % ${#SPIN_COLOR_PALETTE[@]} ))]}"
+      spin_watch_and_color "$session" "$widx" "$color" &
+      disown
+    fi
 
     # Seed an initial state file so freshly-launched windows show "working"
     # immediately, avoiding a gap before the first hook fires. Inlined
