@@ -2,6 +2,7 @@
 # spin-status.sh — monitor active spin sessions
 
 spin_status_once() {
+  spin_cleanup_orphaned_sessions
   local sessions
   sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SPIN_SESSION_PREFIX}" || true)
 
@@ -16,7 +17,7 @@ spin_status_once() {
   # Detection pass: call detect_claude_state exactly once per window, and
   # cache state/since/last_message for reuse by both the NEEDS YOU block
   # and the tree below.
-  local -A row_state row_since row_msg
+  local -A row_state row_since row_msg row_has_state
   local attention=()
 
   while IFS= read -r session; do
@@ -33,12 +34,14 @@ spin_status_once() {
       state=$(detect_claude_state "$session" "$widx")
       row_state["$key"]="$state"
 
-      local stripped_wname state_file since msg
+      local stripped_wname state_file since msg has_state
       stripped_wname=$(spin_strip_icon "$wname")
       state_file=$(spin_state_file "$session" "$stripped_wname")
       since="$now"
       msg=""
+      has_state=false
       if [[ -f "$state_file" ]]; then
+        has_state=true
         local file_since
         file_since=$(spin_json_field "$state_file" "since")
         [[ -n "$file_since" ]] && since="$file_since"
@@ -46,6 +49,7 @@ spin_status_once() {
       fi
       row_since["$key"]="$since"
       row_msg["$key"]="$msg"
+      row_has_state["$key"]="$has_state"
 
       if [[ "$state" == "waiting" || "$state" == "permission" ]]; then
         attention+=("$key|$session|$wname")
@@ -81,14 +85,20 @@ spin_status_once() {
         label="${GREEN}${BOLD}waiting for input${RESET}"
       fi
 
-      local elapsed
-      elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+      local elapsed=""
+      if [[ "${row_has_state[$key]}" == "true" ]]; then
+        elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+      fi
 
       local msg="${row_msg[$key]}"
-      if [[ -n "$msg" ]]; then
+      if [[ -n "$elapsed" && -n "$msg" ]]; then
         printf ' %s %s:%s  %s  %s  %s%s%s\n' "$icon" "$ent_session" "$ent_wname" "$label" "$elapsed" "$DIM" "${msg:0:avail}" "$RESET"
-      else
+      elif [[ -n "$elapsed" ]]; then
         printf ' %s %s:%s  %s  %s\n' "$icon" "$ent_session" "$ent_wname" "$label" "$elapsed"
+      elif [[ -n "$msg" ]]; then
+        printf ' %s %s:%s  %s  %s%s%s\n' "$icon" "$ent_session" "$ent_wname" "$label" "$DIM" "${msg:0:avail}" "$RESET"
+      else
+        printf ' %s %s:%s  %s\n' "$icon" "$ent_session" "$ent_wname" "$label"
       fi
     done
 
@@ -151,12 +161,18 @@ spin_status_once() {
           ;;
       esac
 
-      local elapsed
-      elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+      local elapsed=""
+      if [[ "${row_has_state[$key]}" == "true" ]]; then
+        elapsed=$(spin_humanize_duration $(( now - row_since[$key] )))
+      fi
 
       local display_wname
       display_wname=$(spin_strip_icon "$wname")
-      printf " %s %-12s %s %s  %s%s%s\n" "$connector" "$display_wname" "$icon" "$label" "$DIM" "$elapsed" "$RESET"
+      if [[ -n "$elapsed" ]]; then
+        printf " %s %-12s %s %s  %s%s%s\n" "$connector" "$display_wname" "$icon" "$label" "$DIM" "$elapsed" "$RESET"
+      else
+        printf " %s %-12s %s %s\n" "$connector" "$display_wname" "$icon" "$label"
+      fi
     done <<< "$windows"
 
     echo ""
@@ -303,6 +319,26 @@ spin_cleanup_stale_state() {
   done
 }
 
+# spin_cleanup_orphaned_sessions — removes state directories for tmux
+# sessions that no longer exist at all. Complements spin_cleanup_stale_state,
+# which only prunes individual windows within a still-live session; this
+# handles the case where the entire session was killed and its state
+# directory would otherwise linger forever under the state root.
+spin_cleanup_orphaned_sessions() {
+  local root
+  root="$(spin_state_dir)"
+  [[ -d "$root" ]] || return 0
+
+  local dir session_dir
+  for dir in "$root"/*/; do
+    [[ -d "$dir" ]] || continue
+    session_dir="$(basename "$dir")"
+    if ! tmux has-session -t "$session_dir" 2>/dev/null; then
+      rm -rf -- "$dir"
+    fi
+  done
+}
+
 spin_json_escape() {
   local s="$1"
   s="${s//\\/\\\\}"    # backslash must be first
@@ -314,6 +350,7 @@ spin_json_escape() {
 }
 
 spin_status_json() {
+  spin_cleanup_orphaned_sessions
   local sessions
   sessions=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SPIN_SESSION_PREFIX}" || true)
 
@@ -347,16 +384,19 @@ spin_status_json() {
       stripped_wname=$(spin_strip_icon "$wname")
       state_file=$(spin_state_file "$session" "$stripped_wname")
 
-      local since last_message
-      since="$now"
-      last_message=""
+      local since last_message elapsed_seconds
       if [[ -f "$state_file" ]]; then
+        since="$now"
         local file_since
         file_since=$(spin_json_field "$state_file" "since")
         [[ -n "$file_since" ]] && since="$file_since"
         last_message=$(spin_json_field "$state_file" "last_message")
+        elapsed_seconds=$(( now - since ))
+      else
+        since=0
+        last_message=""
+        elapsed_seconds=-1
       fi
-      local elapsed_seconds=$(( now - since ))
 
       if $first_session; then
         first_session=false
