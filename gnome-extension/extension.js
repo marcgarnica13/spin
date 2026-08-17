@@ -133,8 +133,12 @@ class SpinIndicator extends PanelMenu.Button {
   }
 
   _groupSessionsByName(sessions) {
-    // sessions is a flat array: [{name, window, state, pid, idle_duration}, ...]
-    // Returns a Map<string, Array<{window, state}>>
+    // sessions is a flat array:
+    // [{name, window, state, pid, since, elapsed_seconds, last_message}, ...]
+    // elapsed_seconds is -1 for fallback windows with no hook-written state
+    // file (see lib/spin-status.sh spin_status_json) — treat that as "no
+    // elapsed data available", not "just started".
+    // Returns a Map<string, Array<{window, state, elapsedSeconds, lastMessage}>>
     const grouped = new Map();
     for (const entry of sessions) {
       const sessionName = String(entry.name || '');
@@ -142,9 +146,12 @@ class SpinIndicator extends PanelMenu.Button {
       if (!grouped.has(sessionName)) {
         grouped.set(sessionName, []);
       }
+      const elapsedSeconds = Number.isFinite(entry.elapsed_seconds) ? entry.elapsed_seconds : -1;
       grouped.get(sessionName).push({
         window: String(entry.window || ''),
         state: String(entry.state || 'idle'),
+        elapsedSeconds,
+        lastMessage: String(entry.last_message || ''),
       });
     }
     return grouped;
@@ -161,6 +168,22 @@ class SpinIndicator extends PanelMenu.Button {
     return symbolMap[state] || '\u25CB';
   }
 
+  _humanizeDuration(seconds) {
+    // Mirrors spin_humanize_duration in lib/spin-common.sh.
+    let s = seconds;
+    if (s < 0) s = 0;
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    const hours = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    return `${hours}h${mins}m`;
+  }
+
+  _truncateMessage(text, maxLen) {
+    if (text.length <= maxLen) return text;
+    return `${text.slice(0, maxLen)}\u2026`;
+  }
+
   _buildMenu(sessions) {
     this.menu.removeAll();
 
@@ -172,7 +195,18 @@ class SpinIndicator extends PanelMenu.Button {
 
       for (const win of windows) {
         const symbol = this._stateToIconSymbol(win.state);
-        const label = `${win.window}  ${symbol}`;
+        let label = `${win.window}  ${symbol}`;
+
+        // Fallback windows (elapsedSeconds === -1, no hook state file) have
+        // no reliable elapsed time — omit rather than show a misleading value.
+        if (win.elapsedSeconds >= 0) {
+          label += `  ${this._humanizeDuration(win.elapsedSeconds)}`;
+        }
+
+        if ((win.state === 'waiting' || win.state === 'permission') && win.lastMessage) {
+          label += `  ${this._truncateMessage(win.lastMessage, 40)}`;
+        }
+
         const windowItem = new PopupMenu.PopupMenuItem(label);
 
         // Capture sessionName/windowName by value via arrow function (avoids loop-closure bug)
