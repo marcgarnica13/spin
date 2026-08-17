@@ -66,24 +66,58 @@ window=$(_strip_icon "$window_raw")
 
 session_id=$(printf '%s' "$input" | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
 
+state_dir="$STATE_ROOT/$session"
+state_file="$state_dir/$window.json"
+
+# Previous snippet/uuid, used both to detect stale transcript reads on stop
+# and to preserve the snippet across events that shouldn't clear it.
+prev_uuid=""
+prev_message=""
+if [[ -f "$state_file" ]]; then
+  prev_uuid=$(grep -o '"last_uuid"[[:space:]]*:[[:space:]]*"[^"]*"' "$state_file" 2>/dev/null | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
+  prev_message=$(grep -o '"last_message"[[:space:]]*:[[:space:]]*"[^"]*"' "$state_file" 2>/dev/null | head -1 | sed -E 's/.*:[[:space:]]*"(.*)"$/\1/' || true)
+  prev_message="${prev_message%\\}"  # avoid a trailing lone backslash breaking the rewritten JSON
+fi
+
 last_message=""
+last_uuid=""
 if [[ "$event" == "stop" ]]; then
   transcript_path=$(printf '%s' "$input" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
   if [[ -n "$transcript_path" ]]; then
-    last_assistant_line=$(tac "$transcript_path" 2>/dev/null | grep -m1 '"role"[[:space:]]*:[[:space:]]*"assistant"' || true)
-    if [[ -n "$last_assistant_line" ]]; then
-      raw_text=$(printf '%s' "$last_assistant_line" | grep -o '"text"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
-      if [[ -n "$raw_text" ]]; then
-        raw_text="${raw_text//\\n/ }"
-        raw_text="${raw_text//\\\"/\"}"
-        last_message="${raw_text:0:200}"
+    # The Stop hook usually fires BEFORE Claude Code flushes this turn's
+    # final assistant line to the transcript, so the newest line found is
+    # often the PREVIOUS turn's message. A line is provably this turn's
+    # only when it ARRIVES while we watch (differs from the first line we
+    # saw) — so snapshot the first-seen uuid and keep re-reading for a few
+    # seconds. If nothing new arrives, keep the newest extraction: either
+    # the flush beat us here (correct) or it is one turn stale (best we
+    # can do without parsing internals further).
+    first_uuid=""
+    for _try in 1 2 3 4 5 6 7 8; do
+      last_assistant_line=$(tac "$transcript_path" 2>/dev/null | grep -m1 '"role"[[:space:]]*:[[:space:]]*"assistant"' || true)
+      if [[ -n "$last_assistant_line" ]]; then
+        raw_text=$(printf '%s' "$last_assistant_line" | grep -o '"text"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
+        if [[ -n "$raw_text" ]]; then
+          raw_text="${raw_text//\\n/ }"
+          raw_text="${raw_text//\\\"/\"}"
+          last_message="${raw_text:0:200}"
+          last_uuid=$(printf '%s' "$last_assistant_line" | grep -o '"uuid"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*"([^"]*)"$/\1/' || true)
+          [[ -z "$first_uuid" ]] && first_uuid="$last_uuid"
+          # A new line arrived while watching — definitely this turn's.
+          [[ -n "$last_uuid" && "$last_uuid" != "$first_uuid" ]] && break
+          # No uuid to compare — accept what we have.
+          [[ -z "$last_uuid" ]] && break
+        fi
       fi
-    fi
+      sleep 0.3
+    done
   fi
+elif [[ "$event" == "notification_permission" || "$event" == "notification_idle" ]]; then
+  # Attention notifications refine an existing waiting state — keep the
+  # snippet the stop hook captured instead of blanking it.
+  last_message="$prev_message"
+  last_uuid="$prev_uuid"
 fi
-
-state_dir="$STATE_ROOT/$session"
-state_file="$state_dir/$window.json"
 
 now=$(date +%s)
 since="$now"
@@ -105,6 +139,7 @@ tmp_file=$(mktemp "$state_dir/.tmp.XXXXXX" 2>/dev/null) || exit 0
   printf '  "since": %d,\n' "$since"
   printf '  "updated": %d,\n' "$now"
   printf '  "session_id": "%s",\n' "$(_json_escape "$session_id")"
+  printf '  "last_uuid": "%s",\n' "$(_json_escape "$last_uuid")"
   printf '  "last_message": "%s"\n' "$(_json_escape "$last_message")"
   printf '}\n'
 } > "$tmp_file" 2>/dev/null
