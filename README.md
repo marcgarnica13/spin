@@ -133,7 +133,7 @@ spin connect myproject # attach to spin-myproject in a new Ghostty window
 
 ## How it works
 
-`spin claude` creates a tmux session named `spin-<directory>` with one window per name. Each window has two panes: the left pane runs `claude --dangerously-skip-permissions --worktree <name>`, and the right pane is a shell in the project directory.
+`spin claude` creates a tmux session named `spin-<directory>` with one window per name, each running `claude --dangerously-skip-permissions --worktree <name> --name <name>`. Once a window's Claude finishes booting, spin sends it a `/color` command so every session gets a distinct prompt-bar color (cycled from the Claude Code palette by window index) -- an instant visual cue for which session you're in.
 
 `spin claude` also registers Claude Code lifecycle hooks (via `--settings`) that write a ground-truth state file per window whenever Claude actually finishes responding, needs a permission prompt answered, or exits -- turning state detection from guesswork into real events. `spin status` enumerates all `spin-*` tmux sessions and reads each window's state file first; it only falls back to inspecting the pane's process tree and terminal content when no hook data exists yet (e.g. a session launched by an older `spin` version, or the hook hasn't fired yet).
 
