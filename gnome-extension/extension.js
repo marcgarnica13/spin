@@ -114,7 +114,7 @@ class SpinIndicator extends PanelMenu.Button {
         return 'attention'; // Highest priority — needs user input
       }
 
-      if (state === 'working' && result === 'idle') {
+      if ((state === 'working' || state === 'auto') && result === 'idle') {
         result = 'working';
       }
       // exited maps to idle — nothing actionable
@@ -162,6 +162,7 @@ class SpinIndicator extends PanelMenu.Button {
       'working':    '\u25CF', // ● filled circle (Claude running)
       'waiting':    '\u25C9', // ◉ fisheye (awaiting input)
       'permission': '\u25C9', // ◉ fisheye (needs permission)
+      'auto':       '\u25CF', // ● filled circle (paused, will resume on its own -- not attention)
       'idle':       '\u25CB', // ○ open circle (no activity)
       'exited':     '\u25CB', // ○ open circle (finished)
     };
