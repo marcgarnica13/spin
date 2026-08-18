@@ -147,6 +147,10 @@ spin_status_once() {
           icon="$ICON_PERMISSION"
           label="${RED}${BOLD}needs permission${RESET}"
           ;;
+        auto)
+          icon="$ICON_AUTO"
+          label="${YELLOW}${DIM}auto — will resume${RESET}"
+          ;;
         idle)
           icon="$ICON_IDLE"
           label="${CYAN}${DIM}idle${RESET}"
@@ -179,7 +183,7 @@ spin_status_once() {
   done <<< "$sessions"
 
   # Legend
-  echo " ${ICON_WORKING} working  ${ICON_WAITING} needs input  ${ICON_PERMISSION} needs permission  ${ICON_IDLE} idle  ${ICON_EXITED} exited"
+  echo " ${ICON_WORKING} working  ${ICON_WAITING} needs input  ${ICON_PERMISSION} needs permission  ${ICON_AUTO} auto — will resume  ${ICON_IDLE} idle  ${ICON_EXITED} exited"
 }
 
 detect_claude_state() {

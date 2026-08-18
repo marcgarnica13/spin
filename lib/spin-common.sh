@@ -21,6 +21,7 @@ fi
 ICON_WORKING="${YELLOW}●${RESET}"
 ICON_WAITING="${GREEN}${BOLD}◉${RESET}"
 ICON_PERMISSION="${RED}${BOLD}◉${RESET}"
+ICON_AUTO="${YELLOW}${DIM}◉${RESET}"
 ICON_EXITED="${DIM}○${RESET}"
 ICON_IDLE="${CYAN}${DIM}◌${RESET}"
 
@@ -34,6 +35,7 @@ state_to_icon_char() {
     working)    echo "●" ;;
     waiting)    echo "◉" ;;
     permission) echo "◉" ;;
+    auto)       echo "●" ;;
     idle)       echo "○" ;;
     exited)     echo "○" ;;
     *)          echo "○" ;;
