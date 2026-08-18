@@ -220,9 +220,28 @@ detect_claude_state() {
     fi
   fi
 
-  # Step 2: State file (hook-written ground truth) takes priority. Only
-  # fall back to pane-scraping when it's absent or empty (e.g. a session
-  # launched by an older spin, or the hook hasn't fired yet).
+  # Step 2: Capture pane content once, early — raised to -S -15 so the
+  # footer/status-bar line (spinner summary, "esc to interrupt") is
+  # reliably included. Used both to cross-check a state file (Step 2b)
+  # and as the pane-scraping fallback (Step 3) when no state file exists.
+  local pane_content
+  pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -15 2>/dev/null || true)
+
+  local active_run=false
+  local auto_resume=false
+  if [[ -n "$pane_content" ]]; then
+    if echo "$pane_content" | grep -qF 'esc to interrupt'; then
+      active_run=true
+    fi
+    if echo "$pane_content" | grep -qP '\d+\s+(shell|monitor|task|agent)s?\s+still running'; then
+      auto_resume=true
+    fi
+  fi
+
+  # Step 2b: State file (hook-written ground truth) takes priority, but is
+  # reconciled against live pane evidence rather than trusted blindly — the
+  # hook layer has no event for "permission answered" or a background-task
+  # notification silently re-invoking Claude, so the file can go stale.
   local window_name
   window_name=$(tmux display-message -t "$session:$widx" -p '#{window_name}' 2>/dev/null || true)
   if [[ -n "$window_name" ]]; then
@@ -232,15 +251,26 @@ detect_claude_state() {
     if [[ -f "$state_file" ]]; then
       file_state=$(spin_json_field "$state_file" "state")
       if [[ -n "$file_state" ]]; then
+        if $active_run; then
+          echo "working"
+          return
+        fi
+        if [[ "$file_state" == "waiting" ]] && $auto_resume; then
+          echo "auto"
+          return
+        fi
         echo "$file_state"
         return
       fi
     fi
   fi
 
-  # Step 3: Capture pane content and analyze last visible lines
-  local pane_content
-  pane_content=$(tmux capture-pane -p -t "$session:$widx.0" -S -10 2>/dev/null || true)
+  # Step 3: No state file — pane-scraping fallback. Same two live-evidence
+  # checks apply first, then the existing last-lines heuristics.
+  if $active_run; then
+    echo "working"
+    return
+  fi
 
   if [[ -z "$pane_content" ]]; then
     echo "working"
@@ -258,7 +288,11 @@ detect_claude_state() {
 
   # Claude Code's input prompt: a line that is just ">" (possibly with ANSI escapes stripped)
   if echo "$last_lines" | grep -qE '^\s*>\s*$'; then
-    echo "waiting"
+    if $auto_resume; then
+      echo "auto"
+    else
+      echo "waiting"
+    fi
     return
   fi
 
